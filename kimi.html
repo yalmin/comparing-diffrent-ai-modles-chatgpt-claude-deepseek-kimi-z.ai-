@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>The Last Light</title>
+<style>
+  html,body{margin:0;padding:0;background:#000;height:100%;overflow:hidden;font-family:Georgia,'Times New Roman',serif;color:#cfc8b8;}
+  #wrap{position:fixed;inset:0;}
+  canvas#game{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges;background:#000;cursor:crosshair;}
+  .overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:radial-gradient(ellipse at center,#0d0b09 0%,#000 75%);z-index:10;padding:20px;}
+  .hidden{display:none !important;}
+  h1.title{font-size:clamp(38px,8vw,84px);letter-spacing:0.18em;margin:0 0 6px;color:#e8dfc8;text-shadow:0 0 18px rgba(255,200,90,.35),0 0 60px rgba(255,120,40,.15);animation:flick 4s infinite;}
+  @keyframes flick{0%,100%{opacity:1}88%{opacity:1}89%{opacity:.4}90%{opacity:1}93%{opacity:.6}94%{opacity:1}}
+  .sub{color:#8a7f68;letter-spacing:.35em;font-size:13px;margin-bottom:34px;text-transform:uppercase;}
+  .story{max-width:620px;line-height:1.65;color:#a99e87;font-size:15px;margin-bottom:26px;}
+  .controls{display:grid;grid-template-columns:auto auto;gap:6px 22px;font-size:14px;color:#7d7462;margin-bottom:34px;text-align:left;}
+  .controls b{color:#c9bda3;font-weight:normal;font-family:monospace;background:#171410;border:1px solid #332c22;border-radius:4px;padding:1px 8px;}
+  button.btn{font-family:inherit;font-size:18px;letter-spacing:.25em;text-transform:uppercase;color:#e8dfc8;background:linear-gradient(#241d14,#151009);border:1px solid #6b5a35;padding:14px 46px;cursor:pointer;border-radius:3px;transition:all .2s;}
+  button.btn:hover{background:linear-gradient(#3a2e1b,#1d160c);box-shadow:0 0 22px rgba(255,190,80,.25);color:#fff;}
+  #hud{position:absolute;inset:0;pointer-events:none;z-index:5;}
+  #crosshair{position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:rgba(255,255,255,.55);box-shadow:0 0 6px rgba(255,255,255,.4);}
+  #batteryWrap{position:absolute;left:26px;bottom:24px;width:190px;}
+  #batteryLabel{font-size:11px;letter-spacing:.2em;color:#8a7f68;margin-bottom:5px;text-transform:uppercase;}
+  #batteryBar{height:12px;border:1px solid #4a4030;background:#0d0b08;}
+  #batteryFill{height:100%;width:100%;background:linear-gradient(90deg,#7dffb0,#b7ffce);transition:width .3s;}
+  #batteryFill.low{background:linear-gradient(90deg,#ff5a3c,#ff9a3c);}
+  #keysHud{position:absolute;right:28px;bottom:24px;font-size:15px;letter-spacing:.15em;color:#c9bda3;}
+  #keysHud .k{color:#4a4030;} #keysHud .k.got{color:#ffd970;text-shadow:0 0 10px rgba(255,200,80,.7);}
+  #objective{position:absolute;top:20px;left:50%;transform:translateX(-50%);font-size:12px;letter-spacing:.3em;color:#6f6552;text-transform:uppercase;}
+  #msg{position:absolute;left:50%;bottom:15%;transform:translateX(-50%);font-size:17px;color:#d8cdb2;text-shadow:0 0 12px #000;opacity:0;transition:opacity .4s;letter-spacing:.06em;}
+  #prompt{position:absolute;left:50%;top:58%;transform:translateX(-50%);font-size:14px;color:#fff;background:rgba(10,8,5,.65);border:1px solid #4a4030;padding:6px 16px;border-radius:3px;opacity:0;transition:opacity .15s;font-family:monospace;}
+  #vignette{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 42%,rgba(0,0,0,.88) 100%);pointer-events:none;}
+  #dangerVin{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 40%,rgba(120,0,0,.75) 100%);opacity:0;pointer-events:none;}
+  #scanlines{position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,.16) 0 1px,transparent 1px 3px);pointer-events:none;opacity:.5;}
+  .big{font-size:clamp(40px,9vw,92px);letter-spacing:.14em;margin:0 0 10px;}
+  #dead h1{color:#a11f1f;text-shadow:0 0 30px rgba(255,0,0,.5);animation:none;}
+  #win h1{color:#d9c98d;text-shadow:0 0 30px rgba(255,210,110,.45);}
+  .stats{color:#8a7f68;font-size:15px;margin-bottom:30px;line-height:1.8;}
+  .hint{color:#575043;font-size:12px;letter-spacing:.2em;margin-top:18px;text-transform:uppercase;}
+</style>
+<base target="_blank">
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game"></canvas>
+  <div id="hud" class="hidden">
+    <div id="objective">Find 3 keys &mdash; unlock the exit</div>
+    <div id="crosshair"></div>
+    <div id="prompt"></div>
+    <div id="msg"></div>
+    <div id="batteryWrap"><div id="batteryLabel">Flashlight &middot; F to toggle</div><div id="batteryBar"><div id="batteryFill"></div></div></div>
+    <div id="keysHud">KEYS <span class="k" id="k1">&#9670;</span> <span class="k" id="k2">&#9670;</span> <span class="k" id="k3">&#9670;</span></div>
+  </div>
+  <div id="dangerVin"></div><div id="vignette"></div><div id="scanlines"></div>
+
+  <div id="menu" class="overlay">
+    <h1 class="title">THE LAST LIGHT</h1>
+    <div class="sub">a first-person horror</div>
+    <div class="story">You wake on the cold floor of an abandoned house. The door you entered through is gone.
+      Somewhere in the dark, <b style="color:#a11f1f">something</b> walks the halls.
+      Find <b style="color:#d9c98d">three keys</b> and unlock the front exit &mdash; before your light dies,
+      and before it finds you.</div>
+    <div class="controls">
+      <span><b>W A S D</b></span><span>Move</span>
+      <span><b>MOUSE</b></span><span>Look (click to capture)</span>
+      <span><b>SHIFT</b></span><span>Sprint (louder footsteps)</span>
+      <span><b>F</b></span><span>Flashlight on / off</span>
+      <span><b>E</b></span><span>Pick up keys / unlock exit</span>
+      <span><b>ESC</b></span><span>Pause</span>
+    </div>
+    <button class="btn" id="startBtn">Enter the House</button>
+    <div class="hint">headphones recommended &middot; play in the dark</div>
+  </div>
+
+  <div id="pause" class="overlay hidden">
+    <h1 class="big" style="color:#c9bda3">PAUSED</h1>
+    <div class="story">The house waits for you.</div>
+    <button class="btn" id="resumeBtn">Resume</button>
+    <div class="hint">click &mdash; mouse will be recaptured</div>
+  </div>
+
+  <div id="dead" class="overlay hidden">
+    <h1 class="big">IT FOUND YOU</h1>
+    <div class="stats" id="deadStats"></div>
+    <button class="btn" id="retryBtn">Try Again</button>
+  </div>
+
+  <div id="win" class="overlay hidden">
+    <h1 class="big">YOU ESCAPED</h1>
+    <div class="stats" id="winStats"></div>
+    <button class="btn" id="againBtn">Play Again</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ================= THE LAST LIGHT — full raycasting horror engine, zero assets ================= */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const RW = 480, RH = 300;             // internal render resolution (upscaled, retro look)
+canvas.width = RW; canvas.height = RH;
+const MW = 24, MH = 16;
+const MAPSTR = [
+"555555555555555555555555",
+"500000040000000400000005",
+"500000040000000400000005",
+"500000040000000400000005",
+"500000040000000400000005",
+"544044444440444444404445",
+"500000040000000400000005",
+"500000000000010400000005",
+"500000040100000000000005",
+"500000040000000400000005",
+"544044444440444444404445",
+"500000040000000400000005",
+"500000000000100400000005",
+"500000040000010000000005",
+"500000040000000400000005",
+"555555555555555555525555"
+];
+const map = MAPSTR.map(r => r.split('').map(Number));
+function cellAt(x, y){ if(x<0||y<0||x>=MW||y>=MH) return 1; return map[y|0][x|0]; }
+function solid(x, y){ return cellAt(x, y) >= 1; }   // 0 floor, 1 wall, 2 exit, 4 brick, 5 stone
+
+/* ---------------- game state ---------------- */
+let S;
+function init(){
+  S = {
+    state:'menu',            // menu | playing | paused | dying | dead | won
+    time:0, startTime:0,
+    px:2.5, py:2.5, pa:0,    // player pos + facing angle (0 = +x)
+    bob:0, moving:false, sprinting:false,
+    battery:100, flashOn:true,
+    keys:0, agitation:0,
+    flicker:1, flickerT:0, blackout:0,
+    stepT:0, hbT:0,
+    nextScare:14,
+    msg:'', msgT:0,
+    danger:0,
+    dyingT:0, deathCause:'',
+    winTime:0,
+  };
+  M = {
+    x:11.5, y:8.5, a:Math.PI/2, state:'patrol',
+    path:null, pi:0, repath:0, searchT:0, loseT:0,
+    growlT:0, spotT:0,
+  };
+  keysList = [ {x:11.5,y:2.5,taken:false}, {x:19.5,y:4.5,taken:false}, {x:3.5,y:8.5,taken:false} ];
+  batsList = [ {x:5.5,y:13.5,taken:false}, {x:21.5,y:7.5,taken:false} ];
+  patrolPts = rooms.map(r => ({x:(r[0]+r[2])/2+0.0, y:(r[1]+r[3])/2+0.0}));
+  M.wpt = patrolPts[4];
+  updateKeyHud(); updateBatteryHud();
+  document.getElementById('dangerVin').style.opacity = 0;
+}
+let M, keysList, batsList, patrolPts;
+const rooms=[[1,1,6,4],[8,1,14,4],[16,1,22,4],[1,6,6,9],[8,6,14,9],[16,6,22,9],[1,11,6,14],[8,11,14,14],[16,11,22,14]];
+const EXIT = {x:19.5, y:15.5};
+
+/* ---------------- procedural sprites (no image assets) ---------------- */
+function makeCanvas(w,h){ const c=document.createElement('canvas'); c.width=w; c.height=h; return c; }
+const monsterSpr = (function(){
+  const c=makeCanvas(96,192), g=c.getContext('2d');
+  g.clearRect(0,0,96,192);
+  // ragged cloak body
+  g.fillStyle='#07060a';
+  g.beginPath();
+  g.moveTo(48,14);
+  g.bezierCurveTo(20,22,14,60,16,100);
+  g.lineTo(10,150); g.lineTo(20,144); g.lineTo(26,160); g.lineTo(36,148);
+  g.lineTo(48,168); g.lineTo(60,148); g.lineTo(70,160); g.lineTo(76,144); g.lineTo(86,152);
+  g.lineTo(80,100); g.bezierCurveTo(82,60,76,22,48,14);
+  g.closePath(); g.fill();
+  // head
+  g.beginPath(); g.ellipse(48,32,15,19,0,0,Math.PI*2); g.fillStyle='#0b0a10'; g.fill();
+  // pale hollow face hint
+  g.beginPath(); g.ellipse(48,36,10,13,0,0,Math.PI*2); g.fillStyle='#1a1720'; g.fill();
+  // glowing eyes
+  for(const ex of [40,56]){
+    const gr=g.createRadialGradient(ex,33,0,ex,33,9);
+    gr.addColorStop(0,'rgba(255,60,30,1)'); gr.addColorStop(.4,'rgba(200,20,10,.8)'); gr.addColorStop(1,'rgba(120,0,0,0)');
+    g.fillStyle=gr; g.beginPath(); g.arc(ex,33,9,0,Math.PI*2); g.fill();
+  }
+  // thin mouth
+  g.strokeStyle='rgba(0,0,0,.9)'; g.lineWidth=2;
+  g.beginPath(); g.moveTo(41,47); g.lineTo(55,47); g.stroke();
+  return c;
+})();
+const keySpr = (function(){
+  const c=makeCanvas(48,48), g=c.getContext('2d');
+  g.shadowColor='#ffcf5a'; g.shadowBlur=10; g.strokeStyle='#ffd970'; g.fillStyle='#ffd970'; g.lineWidth=3;
+  g.beginPath(); g.arc(15,24,8,0,Math.PI*2); g.stroke();
+  g.beginPath(); g.moveTo(23,24); g.lineTo(40,24); g.stroke();
+  g.beginPath(); g.moveTo(33,24); g.lineTo(33,30); g.moveTo(39,24); g.lineTo(39,30); g.stroke();
+  return c;
+})();
+const batSpr = (function(){
+  const c=makeCanvas(40,56), g=c.getContext('2d');
+  g.shadowColor='#7dffb0'; g.shadowBlur=10;
+  g.fillStyle='#2c4a38'; g.fillRect(8,10,24,40);
+  g.fillStyle='#7dffb0'; g.fillRect(8,16,24,6);
+  g.fillStyle='#183024'; g.fillRect(14,4,12,8);
+  g.shadowBlur=0; g.fillStyle='#b7ffce'; g.font='bold 20px monospace'; g.fillText('+',15,44);
+  return c;
+})();
+// floor/ceiling gradient strips
+const floorGrad=(function(){const c=makeCanvas(1,RH/2);const g=c.getContext('2d');
+  const gr=g.createLinearGradient(0,0,0,RH/2);gr.addColorStop(0,'#12100c');gr.addColorStop(1,'#2a241a');
+  g.fillStyle=gr;g.fillRect(0,0,1,RH/2);return c;})();
+const ceilGrad=(function(){const c=makeCanvas(1,RH/2);const g=c.getContext('2d');
+  const gr=g.createLinearGradient(0,0,0,RH/2);gr.addColorStop(0,'#050507');gr.addColorStop(1,'#0e0d12');
+  g.fillStyle=gr;g.fillRect(0,0,1,RH/2);return c;})();
+
+/* ---------------- audio (WebAudio, all synthesized) ---------------- */
+let AC=null, master=null, droneNodes=null, windNodes=null;
+function initAudio(){
+  if(AC) return;
+  AC = new (window.AudioContext||window.webkitAudioContext)();
+  master = AC.createGain(); master.gain.value = 0.85; master.connect(AC.destination);
+  // ambient drone: two detuned saws through a slow-breathing lowpass
+  const g1=AC.createGain(); g1.gain.value=0.05;
+  const lp=AC.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=160; lp.Q.value=2;
+  const o1=AC.createOscillator(); o1.type='sawtooth'; o1.frequency.value=55;
+  const o2=AC.createOscillator(); o2.type='sawtooth'; o2.frequency.value=55.7;
+  o1.connect(lp); o2.connect(lp); lp.connect(g1); g1.connect(master);
+  const lfo=AC.createOscillator(); lfo.frequency.value=0.07;
+  const lfoG=AC.createGain(); lfoG.gain.value=70; lfo.connect(lfoG); lfoG.connect(lp.frequency);
+  o1.start(); o2.start(); lfo.start();
+  droneNodes={g1};
+  // wind: looped filtered noise with slow LFO
+  const buf=AC.createBuffer(1, AC.sampleRate*2, AC.sampleRate);
+  const d=buf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+  const src=AC.createBufferSource(); src.buffer=buf; src.loop=true;
+  const bp=AC.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=420; bp.Q.value=0.6;
+  const wg=AC.createGain(); wg.gain.value=0.022;
+  const wlfo=AC.createOscillator(); wlfo.frequency.value=0.13;
+  const wlg=AC.createGain(); wlg.gain.value=0.014;
+  wlfo.connect(wlg); wlg.connect(wg.gain);
+  src.connect(bp); bp.connect(wg); wg.connect(master);
+  src.start(); wlfo.start();
+  windNodes={wg};
+}
+function env(g, t0, a, peak, d){ g.gain.setValueAtTime(0.0001,t0); g.gain.linearRampToValueAtTime(peak,t0+a); g.gain.exponentialRampToValueAtTime(0.0001,t0+a+d); }
+function noiseBurst(dur, filterType, freq, q, peak, t0){
+  if(!AC) return;
+  t0 = t0 || AC.currentTime;
+  const b=AC.createBuffer(1, AC.sampleRate*dur, AC.sampleRate);
+  const dd=b.getChannelData(0); for(let i=0;i<dd.length;i++) dd[i]=Math.random()*2-1;
+  const s=AC.createBufferSource(); s.buffer=b;
+  const f=AC.createBiquadFilter(); f.type=filterType; f.frequency.value=freq; f.Q.value=q||1;
+  const g=AC.createGain(); env(g,t0,0.005,peak,dur);
+  s.connect(f); f.connect(g); g.connect(master); s.start(t0); s.stop(t0+dur+0.1);
+}
+const sfx = {
+  step(sprint){
+    if(!AC) return;
+    noiseBurst(0.09,'lowpass',500+Math.random()*300,1, sprint?0.16:0.09);
+    const o=AC.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(75,AC.currentTime); o.frequency.exponentialRampToValueAtTime(40,AC.currentTime+0.09);
+    const g=AC.createGain(); env(g,AC.currentTime,0.004,sprint?0.14:0.08,0.09);
+    o.connect(g); g.connect(master); o.start(); o.stop(AC.currentTime+0.12);
+  },
+  heartbeat(vol){
+    if(!AC) return;
+    const t=AC.currentTime;
+    for(const [off,v] of [[0,vol],[0.16,vol*0.7]]){
+      const o=AC.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(58,t+off); o.frequency.exponentialRampToValueAtTime(35,t+off+0.1);
+      const g=AC.createGain(); env(g,t+off,0.005,v,0.14);
+      o.connect(g); g.connect(master); o.start(t+off); o.stop(t+off+0.2);
+    }
+  },
+  growl(intense){
+    if(!AC) return;
+    const t=AC.currentTime, dur=intense?1.4:0.9;
+    const o=AC.createOscillator(); o.type='sawtooth';
+    o.frequency.setValueAtTime(intense?82:64,t);
+    o.frequency.linearRampToValueAtTime(intense?48:40,t+dur);
+    const ws=AC.createWaveShaper(); const cur=new Float32Array(256);
+    for(let i=0;i<256;i++){const x=i/128-1; cur[i]=Math.tanh(x*4);} ws.curve=cur;
+    const g=AC.createGain(); env(g,t,0.06,intense?0.34:0.18,dur);
+    o.connect(ws); ws.connect(g); g.connect(master); o.start(t); o.stop(t+dur+0.1);
+    noiseBurst(dur*0.7,'lowpass',300,1,intense?0.12:0.06,t);
+  },
+  whisper(){
+    if(!AC) return;
+    const t=AC.currentTime;
+    for(let i=0;i<5;i++){
+      const tt=t+i*0.14+Math.random()*0.05;
+      noiseBurst(0.1,'bandpass',900+Math.random()*2200,8,0.05,tt);
+    }
+  },
+  knock(){
+    if(!AC) return;
+    const t=AC.currentTime;
+    for(let i=0;i<3;i++){
+      const tt=t+i*0.28;
+      const o=AC.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(120,tt); o.frequency.exponentialRampToValueAtTime(55,tt+0.12);
+      const g=AC.createGain(); env(g,tt,0.003,0.22,0.16);
+      o.connect(g); g.connect(master); o.start(tt); o.stop(tt+0.25);
+      noiseBurst(0.06,'lowpass',700,1,0.06,tt);
+    }
+  },
+  chime(){
+    if(!AC) return;
+    const t=AC.currentTime;
+    [660,990].forEach((f,i)=>{
+      const o=AC.createOscillator(); o.type='sine'; o.frequency.value=f;
+      const g=AC.createGain(); env(g,t+i*0.09,0.005,0.14,0.5);
+      o.connect(g); g.connect(master); o.start(t+i*0.09); o.stop(t+i*0.09+0.6);
+    });
+  },
+  pickupBat(){
+    if(!AC) return;
+    const t=AC.currentTime;
+    const o=AC.createOscillator(); o.type='triangle'; o.frequency.setValueAtTime(300,t); o.frequency.linearRampToValueAtTime(520,t+0.15);
+    const g=AC.createGain(); env(g,t,0.005,0.12,0.25);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+0.35);
+  },
+  unlock(){
+    if(!AC) return;
+    const t=AC.currentTime;
+    [520,392,311].forEach((f,i)=>{
+      const o=AC.createOscillator(); o.type='square'; o.frequency.value=f;
+      const g=AC.createGain(); env(g,t+i*0.13,0.004,0.09,0.22);
+      o.connect(g); g.connect(master); o.start(t+i*0.13); o.stop(t+i*0.13+0.3);
+    });
+    noiseBurst(0.15,'highpass',3000,1,0.08,t+0.4);
+  },
+  sting(){ // death / jumpscare
+    if(!AC) return;
+    const t=AC.currentTime;
+    [110,116.5,233,466].forEach(f=>{
+      const o=AC.createOscillator(); o.type='sawtooth';
+      o.frequency.setValueAtTime(f*1.4,t); o.frequency.exponentialRampToValueAtTime(f*0.5,t+1.1);
+      const g=AC.createGain(); env(g,t,0.01,0.2,1.2);
+      o.connect(g); g.connect(master); o.start(t); o.stop(t+1.4);
+    });
+    noiseBurst(1.1,'lowpass',900,1,0.3,t);
+  },
+  creak(){ if(!AC)return; noiseBurst(0.5,'bandpass',180,6,0.05); }
+};
+
+/* ---------------- helpers ---------------- */
+function angDiff(a,b){ let d=a-b; while(d>Math.PI)d-=Math.PI*2; while(d<-Math.PI)d+=Math.PI*2; return d; }
+function los(x0,y0,x1,y1){ // grid line-of-sight
+  const dx=x1-x0, dy=y1-y0, dist=Math.hypot(dx,dy), steps=Math.ceil(dist*8);
+  for(let i=1;i<steps;i++){
+    const t=i/steps;
+    if(solid(x0+dx*t, y0+dy*t)) return false;
+  }
+  return true;
+}
+function bfs(sx,sy,tx,ty){
+  sx|=0; sy|=0; tx|=0; ty|=0;
+  if(solid(tx,ty) || solid(sx,sy)) return null;
+  const prev=new Int16Array(MW*MH).fill(-1);
+  const q=[[sx,sy]]; prev[sy*MW+sx]=sy*MW+sx;
+  while(q.length){
+    const [cx,cy]=q.shift();
+    if(cx===tx&&cy===ty){
+      const path=[]; let cur=ty*MW+tx;
+      while(prev[cur]!==cur){ path.push({x:(cur%MW)+0.5, y:((cur/MW)|0)+0.5}); cur=prev[cur]; }
+      path.reverse(); return path;
+    }
+    for(const [nx,ny] of [[cx+1,cy],[cx-1,cy],[cx,cy+1],[cx,cy-1]]){
+      if(nx<0||ny<0||nx>=MW||ny>=MH) continue;
+      const idx=ny*MW+nx;
+      if(prev[idx]===-1 && !solid(nx,ny)){ prev[idx]=cy*MW+cx; q.push([nx,ny]); }
+    }
+  }
+  return null;
+}
+function say(t,dur){ S.msg=t; S.msgT=dur||3; document.getElementById('msg').textContent=t; document.getElementById('msg').style.opacity=1; }
+function updateKeyHud(){
+  for(let i=1;i<=3;i++) document.getElementById('k'+i).className='k'+(S.keys>=i?' got':'');
+}
+function updateBatteryHud(){
+  const f=document.getElementById('batteryFill');
+  f.style.width=Math.max(0,S.battery)+'%';
+  f.className = S.battery<25 ? 'low' : '';
+}
+function fmtTime(s){ const m=(s/60)|0, ss=(s%60)|0; return m+':'+(ss<10?'0':'')+ss; }
+
+/* ---------------- input ---------------- */
+const keysDown={};
+document.addEventListener('keydown',e=>{
+  keysDown[e.code]=true;
+  if(S && S.state==='playing'){
+    if(e.code==='KeyF'){
+      if(S.battery>0){ S.flashOn=!S.flashOn; noiseBurst(0.04,'highpass',2500,1,0.05); }
+      else say('The flashlight is dead. Find a battery.',2.5);
+    }
+    if(e.code==='KeyE') tryInteract();
+  }
+  if(['ArrowUp','ArrowDown','Space'].includes(e.code)) e.preventDefault();
+});
+document.addEventListener('keyup',e=>{ keysDown[e.code]=false; });
+document.addEventListener('mousemove',e=>{
+  if(document.pointerLockElement===canvas && S && (S.state==='playing'||S.state==='dying')){
+    S.pa += e.movementX*0.0022;
+  }
+});
+document.addEventListener('pointerlockchange',()=>{
+  if(document.pointerLockElement!==canvas && S && S.state==='playing') pauseGame();
+});
+canvas.addEventListener('click',()=>{
+  if(S && S.state==='playing' && document.pointerLockElement!==canvas) lockPointer();
+});
+function lockPointer(){ canvas.requestPointerLock(); }
+
+/* ---------------- flow ---------------- */
+const el=id=>document.getElementById(id);
+function startGame(){
+  initAudio(); if(AC.state==='suspended') AC.resume();
+  init(); S.state='playing'; S.startTime=performance.now();
+  el('menu').classList.add('hidden'); el('dead').classList.add('hidden');
+  el('win').classList.add('hidden'); el('pause').classList.add('hidden');
+  el('hud').classList.remove('hidden');
+  lockPointer();
+  say('Find three keys. Unlock the exit. Stay quiet.',4);
+}
+function pauseGame(){ S.state='paused'; el('pause').classList.remove('hidden'); }
+function resumeGame(){ S.state='playing'; el('pause').classList.add('hidden'); lockPointer(); }
+function die(){
+  if(S.state!=='playing') return;
+  S.state='dying'; S.dyingT=0; sfx.sting(); sfx.growl(true);
+  if(document.pointerLockElement) document.exitPointerLock();
+}
+function showDead(){
+  S.state='dead';
+  el('deadStats').innerHTML='You survived '+fmtTime(S.playTime)+' &middot; Keys found: '+S.keys+'/3';
+  el('dead').classList.remove('hidden');
+}
+function winGame(){
+  S.state='won'; sfx.unlock();
+  if(document.pointerLockElement) document.exitPointerLock();
+  el('winStats').innerHTML='Escape time: '+fmtTime(S.playTime)+' &middot; Battery remaining: '+Math.max(0,S.battery|0)+'%';
+  el('win').classList.remove('hidden');
+}
+el('startBtn').onclick=startGame;
+el('resumeBtn').onclick=resumeGame;
+el('retryBtn').onclick=startGame;
+el('againBtn').onclick=startGame;
+
+/* ---------------- interaction ---------------- */
+function nearestThing(){
+  let best=null, bd=1.6;
+  for(const k of keysList){ if(k.taken) continue;
+    const d=Math.hypot(k.x-S.px,k.y-S.py); if(d<bd){bd=d;best={type:'key',o:k};} }
+  for(const b of batsList){ if(b.taken) continue;
+    const d=Math.hypot(b.x-S.px,b.y-S.py); if(d<bd){bd=d;best={type:'bat',o:b};} }
+  const de=Math.hypot(EXIT.x-S.px,EXIT.y-S.py);
+  if(de<1.9){ best={type:'exit'}; }
+  return best;
+}
+function tryInteract(){
+  const t=nearestThing(); if(!t) return;
+  if(t.type==='key'){
+    t.o.taken=true; S.keys++; sfx.chime(); updateKeyHud();
+    S.agitation++;
+    M.speedBoost = (M.speedBoost||0)+0.25;
+    if(S.keys<3){
+      say('Picked up a key ('+S.keys+'/3). Something heard that...',3.5);
+      sfx.knock(); M.state='search'; M.wpt={x:S.px,y:S.py}; M.path=null; M.searchT=7;
+    } else {
+      say('That\'s all three keys. GET TO THE EXIT.',4);
+      sfx.growl(true); M.state='chase'; // it knows
+    }
+  } else if(t.type==='bat'){
+    t.o.taken=true; S.battery=Math.min(100,S.battery+60);
+    sfx.pickupBat(); updateBatteryHud(); say('Battery restored.',2);
+  } else if(t.type==='exit'){
+    if(S.keys>=3){ winGame(); }
+    else { say('Locked. You need '+(3-S.keys)+' more key'+(3-S.keys>1?'s':'')+'.',2.5); sfx.knock(); }
+  }
+}
+
+/* ---------------- monster AI ---------------- */
+function monsterUpdate(dt){
+  const dx=S.px-M.x, dy=S.py-M.y, dist=Math.hypot(dx,dy);
+  S.danger = Math.max(0, 1 - dist/11);
+  const sees = dist < 9.5+S.agitation && los(M.x,M.y,S.px,S.py) &&
+        (Math.abs(angDiff(Math.atan2(dy,dx), M.a)) < 1.15 || dist < 2.6);
+
+  if(sees && S.state==='playing'){
+    M.spotT += dt;
+    if(M.state!=='chase' && M.spotT>0.25){
+      M.state='chase'; sfx.growl(true); M.path=null;
+    }
+    M.loseT=0;
+  } else {
+    M.spotT=0;
+    if(M.state==='chase'){ M.loseT+=dt; if(M.loseT>3.5){ M.state='search'; M.wpt={x:S.px,y:S.py}; M.path=null; M.searchT=6; sfx.growl(false); } }
+  }
+
+  let speed = M.state==='chase' ? 3.15+(M.speedBoost||0) : M.state==='search' ? 2.1 : 1.5;
+  if(S.state!=='playing') speed=0;
+
+  if(M.state==='chase'){
+    M.repath-=dt;
+    if(M.repath<=0){ M.path=bfs(M.x,M.y,S.px,S.py); M.pi=0; M.repath=0.3; }
+    M.growlT-=dt;
+    if(M.growlT<=0){ sfx.growl(dist<4); M.growlT=2.2+Math.random()*1.5; }
+  } else if(M.state==='search'){
+    if(!M.path){
+      M.path=bfs(M.x,M.y,M.wpt.x,M.wpt.y); M.pi=0;
+      if(!M.path){ M.state='patrol'; }
+    }
+    if(M.path && M.pi>=M.path.length){
+      M.searchT-=dt; M.a+=dt*1.8; speed=0;
+      if(M.searchT<=0){ M.state='patrol'; M.path=null; }
+    }
+  } else { // patrol
+    if(!M.path || M.pi>=M.path.length){
+      const w=patrolPts[(Math.random()*patrolPts.length)|0];
+      M.path=bfs(M.x,M.y,w.x,w.y); M.pi=0;
+    }
+  }
+
+  // follow path
+  if(speed>0 && M.path && M.pi<M.path.length){
+    const wp=M.path[M.pi];
+    const wx=wp.x-M.x, wy=wp.y-M.y, wd=Math.hypot(wx,wy);
+    if(wd<0.18){ M.pi++; }
+    else {
+      const ta=Math.atan2(wy,wx);
+      M.a += angDiff(ta,M.a)*Math.min(1,dt*8);
+      const nx=M.x+Math.cos(M.a)*speed*dt, ny=M.y+Math.sin(M.a)*speed*dt;
+      // slide collision
+      if(!solid(nx+Math.cos(M.a)*0.22, M.y) && !solid(nx+Math.cos(M.a)*0.22, M.y+0.18) && !solid(nx+Math.cos(M.a)*0.22, M.y-0.18)) M.x=nx;
+      if(!solid(M.x, ny+Math.sin(M.a)*0.22) && !solid(M.x+0.18, ny+Math.sin(M.a)*0.22) && !solid(M.x-0.18, ny+Math.sin(M.a)*0.22)) M.y=ny;
+    }
+  }
+
+  // catch the player
+  if(dist<0.72 && S.state==='playing') die();
+}
+function monsterHear(x,y,radius){
+  if(M.state==='chase') return;
+  if(Math.hypot(x-M.x,y-M.y)<radius && S.state==='playing'){
+    M.state='search'; M.wpt={x,y}; M.path=null; M.searchT=6;
+  }
+}
+
+/* ---------------- scares ---------------- */
+function scareUpdate(dt){
+  S.nextScare-=dt;
+  if(S.nextScare>0) return;
+  S.nextScare = 16+Math.random()*18 - S.agitation*2;
+  const roll=Math.random();
+  if(roll<0.35){ S.flickerT=1.2+Math.random(); sfx.creak(); }
+  else if(roll<0.6){ sfx.knock(); say('',0); }
+  else if(roll<0.85){ sfx.whisper(); }
+  else { S.blackout=0.6+Math.random()*0.5; sfx.growl(false); }
+}
+
+/* ---------------- player update ---------------- */
+function playerUpdate(dt){
+  const rot=(keysDown['ArrowLeft']?-1:0)+(keysDown['ArrowRight']?1:0);
+  S.pa += rot*2.2*dt;
+  const fx=Math.cos(S.pa), fy=Math.sin(S.pa);
+  const rx=-fy, ry=fx;
+  let mx=0,my=0;
+  if(keysDown['KeyW']||keysDown['ArrowUp']){mx+=fx;my+=fy;}
+  if(keysDown['KeyS']||keysDown['ArrowDown']){mx-=fx;my-=fy;}
+  if(keysDown['KeyA']){mx-=rx;my-=ry;}
+  if(keysDown['KeyD']){mx+=rx;my+=ry;}
+  const ml=Math.hypot(mx,my);
+  S.moving = ml>0;
+  S.sprinting = S.moving && (keysDown['ShiftLeft']||keysDown['ShiftRight']);
+  if(ml>0){
+    mx/=ml; my/=ml;
+    const sp=(S.sprinting?4.0:2.55)*dt;
+    const r=0.22;
+    const nx=S.px+mx*sp, ny=S.py+my*sp;
+    if(!solid(nx+Math.sign(mx)*r, S.py) ) S.px=nx;
+    if(!solid(S.px, ny+Math.sign(my)*r)) S.py=ny;
+    S.bob += dt*(S.sprinting?11:7.5);
+    S.stepT-=dt;
+    if(S.stepT<=0){
+      sfx.step(S.sprinting);
+      monsterHear(S.px,S.py, S.sprinting?9:4.5);
+      S.stepT = S.sprinting?0.3:0.46;
+    }
+  }
+  // battery
+  if(S.flashOn && S.battery>0){
+    S.battery -= dt*1.15;
+    if(S.battery<=0){ S.battery=0; S.flashOn=false; say('The flashlight dies.',3); updateBatteryHud(); }
+  }
+  updateBatteryHud();
+  // heartbeat
+  S.hbT-=dt;
+  if(S.hbT<=0){
+    const d=S.danger;
+    if(d>0.12) sfx.heartbeat(0.05+d*0.2);
+    S.hbT = 1.15 - d*0.72;
+  }
+  // interaction prompt
+  const t=nearestThing();
+  const p=el('prompt');
+  if(t){ p.style.opacity=1;
+    p.textContent = t.type==='key' ? '[E] Take the key' : t.type==='bat' ? '[E] Take the battery' :
+      (S.keys>=3?'[E] UNLOCK THE EXIT':'Locked — needs '+(3-S.keys)+' more key(s)');
+  } else p.style.opacity=0;
+  // flicker / blackout
+  if(S.flickerT>0){ S.flickerT-=dt; S.flicker = Math.random()<0.45?0.08:(0.7+Math.random()*0.3); }
+  else if(S.blackout>0){ S.blackout-=dt; S.flicker=0.02; }
+  else {
+    S.flicker=1;
+    const jit = S.danger>0.45 && Math.random()<(S.danger-0.4)*0.25;
+    if(jit) S.flicker=0.25+Math.random()*0.4;
+    if(S.battery<20 && Math.random()<0.06) S.flicker=0.2;
+  }
+  el('dangerVin').style.opacity = S.danger*S.danger*0.85;
+  if(S.msgT>0){ S.msgT-=dt; if(S.msgT<=0) el('msg').style.opacity=0; }
+}
+
+/* ---------------- renderer ---------------- */
+const zbuf=new Float32Array(RW);
+function render(){
+  const dirX=Math.cos(S.pa), dirY=Math.sin(S.pa);
+  const planeX=-dirY*0.66, planeY=dirX*0.66;
+  const batF=Math.pow(Math.max(0,S.battery)/100,0.6);
+  const flashOn=S.flashOn && S.battery>0;
+
+  for(let x=0;x<RW;x++){
+    const camX=2*x/RW-1;
+    const rdx=dirX+planeX*camX, rdy=dirY+planeY*camX;
+    let mapX=S.px|0, mapY=S.py|0;
+    const ddx=Math.abs(rdx)<1e-9?1e9:Math.abs(1/rdx), ddy=Math.abs(rdy)<1e-9?1e9:Math.abs(1/rdy);
+    let stepX,stepY,sdx,sdy;
+    if(rdx<0){stepX=-1;sdx=(S.px-mapX)*ddx;}else{stepX=1;sdx=(mapX+1-S.px)*ddx;}
+    if(rdy<0){stepY=-1;sdy=(S.py-mapY)*ddy;}else{stepY=1;sdy=(mapY+1-S.py)*ddy;}
+    let side=0, tile=0;
+    for(let it=0;it<64;it++){
+      if(sdx<sdy){sdx+=ddx;mapX+=stepX;side=0;}else{sdy+=ddy;mapY+=stepY;side=1;}
+      tile=cellAt(mapX,mapY);
+      if(tile>=1) break;
+    }
+    let perp=side===0? sdx-ddx : sdy-ddy;
+    if(perp<0.05) perp=0.05;
+    zbuf[x]=perp;
+    // wall hit coordinate
+    let wallX= side===0? S.py+perp*rdy : S.px+perp*rdx;
+    wallX-=Math.floor(wallX);
+
+    // column brightness: ambient + flashlight cone
+    const rayA=Math.atan2(rdy,rdx);
+    const cone=Math.pow(Math.max(0,Math.cos(angDiff(rayA,S.pa))),22);
+    let b=0.085 + (flashOn? batF*S.flicker*cone*1.35 : 0);
+    b*= 1/(1+perp*0.10);
+    if(tile===2) b=Math.max(b,0.22); // exit door faintly self-lit
+    if(side===1) b*=0.72;
+
+    // ceiling & floor
+    ctx.globalAlpha=Math.min(1,b*3+0.03);
+    ctx.drawImage(ceilGrad,0,0,1,RH/2, x,0,1,RH/2);
+    ctx.globalAlpha=Math.min(1,b*3.6+0.03);
+    ctx.drawImage(floorGrad,0,0,1,RH/2, x,RH/2,1,RH/2);
+    ctx.globalAlpha=1;
+
+    // wall stripe
+    let lineH=RH/perp;
+    const y0=(RH-lineH)/2 + Math.sin(S.bob)*2*(S.moving?1:0);
+    let rC,gC,bC;
+    if(tile===1){ rC=86;gC=62;bC=40; }        // wood
+    else if(tile===4){ rC=96;gC=56;bC=48; }   // brick
+    else if(tile===5){ rC=74;gC=76;bC=86; }   // stone
+    else { rC=42;gC=66;bC=52; }               // exit door
+    // cheap procedural detail
+    if(tile===1 && (wallX*6)%1<0.09) b*=0.55;          // plank seams
+    if(tile===4 && (wallX*8)%1<0.07) b*=0.6;           // brick seams
+    if(tile===2){
+      const f=(wallX*4)%1;
+      if(f<0.06||Math.abs(f-0.5)<0.06) { rC=140;gC=230;bC=150; b=Math.max(b,0.5); } // glowing seams
+      if(wallX>0.42&&wallX<0.58&&((lineH*0.45)|0)%7<2){ rC=200;gC=210;bC=190; b=Math.max(b,0.45);} // handle plate
+    }
+    ctx.fillStyle='rgb('+(rC*b|0)+','+(gC*b|0)+','+(bC*b|0)+')';
+    ctx.fillRect(x,y0,1,lineH+1);
+  }
+
+  // ---- sprites (keys, batteries, monster) ----
+  const sprites=[];
+  for(const k of keysList) if(!k.taken) sprites.push({x:k.x,y:k.y,img:keySpr,h:0.42,vy:Math.sin(S.time*3+k.x)*0.04});
+  for(const bt of batsList) if(!bt.taken) sprites.push({x:bt.x,y:bt.y,img:batSpr,h:0.5,vy:0});
+  sprites.push({x:M.x,y:M.y,img:monsterSpr,h:1.85,vy:0,monster:true});
+  const invDet=1/(planeX*dirY-dirX*planeY);
+  for(const sp of sprites){
+    const relX=sp.x-S.px, relY=sp.y-S.py;
+    const tx=invDet*(dirY*relX-dirX*relY);
+    const ty=invDet*(-planeY*relX+planeX*relY);
+    if(ty<0.15) continue;
+    const sx=(RW/2)*(1+tx/ty);
+    const sh=(RH/ty)*sp.h;
+    const sw=sh*(sp.img.width/sp.img.height);
+    const top=(RH-sh)/2 + (sp.vy*RH/ty) + Math.sin(S.bob)*2*(S.moving?1:0);
+    // brightness tint via monster eye glow / key glow baked in sprite; sprite dimmed by distance
+    const distA=Math.max(0.15, 1/(1+ty*0.12));
+    const glow = sp.monster ? Math.max(distA, S.danger*0.9) : Math.max(distA,0.35);
+    ctx.globalAlpha=Math.min(1,glow+(flashOn?0.25:0));
+    const img=sp.img, stripW=2;
+    const x0=sx-sw/2;
+    for(let x=x0; x<sx+sw/2; x+=stripW){
+      const xi=x|0;
+      if(xi<0||xi>=RW) continue;
+      if(zbuf[xi]>ty){
+        const srcX=((x-x0)/sw)*img.width;
+        ctx.drawImage(img, srcX,0, Math.max(1,img.width/sw*stripW), img.height, xi, top, stripW, sh);
+      }
+    }
+    ctx.globalAlpha=1;
+  }
+}
+
+function drawJumpscare(){ // procedural full-screen monster face
+  const t=S.dyingT;
+  const scale=Math.min(1,t*3.2);
+  const w=RW,h=RH;
+  ctx.fillStyle='#000'; ctx.fillRect(0,0,w,h);
+  const jx=(Math.random()-0.5)*10*scale, jy=(Math.random()-0.5)*8*scale;
+  const cx=w/2+jx, cy=h/2+jy, rw=w*0.42*scale, rh=h*0.62*scale;
+  // pale head
+  const grad=ctx.createRadialGradient(cx,cy-20,10,cx,cy,rh);
+  grad.addColorStop(0,'#b9ac96'); grad.addColorStop(0.6,'#6e6355'); grad.addColorStop(1,'#0a0806');
+  ctx.fillStyle=grad;
+  ctx.beginPath(); ctx.ellipse(cx,cy,rw,rh,0,0,Math.PI*2); ctx.fill();
+  // eye sockets
+  ctx.fillStyle='#050303';
+  ctx.beginPath(); ctx.ellipse(cx-rw*0.34,cy-rh*0.18,rw*0.18,rh*0.16,0,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx+rw*0.34,cy-rh*0.18,rw*0.18,rh*0.16,0,0,Math.PI*2); ctx.fill();
+  // glowing pupils
+  for(const ex of [cx-rw*0.34, cx+rw*0.34]){
+    const g2=ctx.createRadialGradient(ex,cy-rh*0.18,1,ex,cy-rh*0.18,rw*0.12);
+    g2.addColorStop(0,'rgba(255,70,30,1)'); g2.addColorStop(1,'rgba(120,0,0,0)');
+    ctx.fillStyle=g2; ctx.beginPath(); ctx.arc(ex,cy-rh*0.18,rw*0.12,0,Math.PI*2); ctx.fill();
+  }
+  // screaming mouth
+  ctx.fillStyle='#080404';
+  ctx.beginPath(); ctx.ellipse(cx,cy+rh*0.32,rw*0.3,rh*0.28*(0.5+scale*0.5),0,0,Math.PI*2); ctx.fill();
+  // teeth
+  ctx.fillStyle='#c9bda3';
+  for(let i=-3;i<=3;i++){
+    ctx.beginPath();
+    ctx.moveTo(cx+i*rw*0.075-rw*0.03, cy+rh*0.08);
+    ctx.lineTo(cx+i*rw*0.075, cy+rh*0.17);
+    ctx.lineTo(cx+i*rw*0.075+rw*0.03, cy+rh*0.08);
+    ctx.fill();
+  }
+}
+
+/* ---------------- main loop ---------------- */
+let lastT=0;
+function loop(t){
+  requestAnimationFrame(loop);
+  const dt=Math.min(0.05,(t-lastT)/1000||0); lastT=t;
+  if(!S) return;
+  S.time+=dt;
+  if(S.state==='playing'){
+    S.playTime=(t-S.startTime)/1000;
+    playerUpdate(dt);
+    monsterUpdate(dt);
+    scareUpdate(dt);
+    render();
+  } else if(S.state==='dying'){
+    S.dyingT+=dt;
+    render();
+    drawJumpscare();
+    if(S.dyingT>1.0) showDead();
+  } else if(S.state==='menu'||S.state==='dead'||S.state==='won'){
+    // dark idle scene behind overlays
+    ctx.fillStyle='#000'; ctx.fillRect(0,0,RW,RH);
+  }
+  // paused: freeze frame (do nothing)
+}
+function resize(){
+  canvas.style.width='100%'; canvas.style.height='100%';
+}
+window.addEventListener('resize',resize);
+init();
+resize();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

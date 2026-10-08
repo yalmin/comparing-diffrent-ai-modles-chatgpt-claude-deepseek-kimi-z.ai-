@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Last Light</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+    html, body {
+        width: 100%; height: 100%;
+        background: #000;
+        overflow: hidden;
+        font-family: 'Courier New', Courier, monospace;
+    }
+    #game-container {
+        position: absolute; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        background: #000;
+    }
+    canvas {
+        display: block;
+        width: 100%; height: 100%;
+        background: #000;
+    }
+    .overlay {
+        position: absolute; inset: 0;
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center;
+        background: rgba(0,0,0,0.9);
+        color: #c0c0c0;
+        text-align: center;
+        padding: 2rem;
+        z-index: 10;
+        transition: opacity 0.3s;
+    }
+    .overlay.hidden { display: none; }
+    h1 {
+        font-size: 3.5rem; margin-bottom: 1.5rem;
+        color: #b0b0b0;
+        text-shadow: 0 0 20px #7a2e2e, 0 0 5px #000;
+        letter-spacing: 0.4rem;
+    }
+    p { margin: 0.5rem 0; line-height: 1.6; color: #9a9a9a; max-width: 700px; }
+    .key-hint { color: #ddd; font-weight: bold; text-shadow: 0 0 8px #aa5555; }
+    .controls {
+        margin-top: 1.5rem; padding-top: 1rem;
+        border-top: 1px solid #333;
+        font-size: 0.95rem; color: #7a7a7a;
+    }
+    button {
+        margin-top: 2rem;
+        padding: 1rem 2.5rem;
+        background: #1a1a1a;
+        color: #c0c0c0;
+        border: 2px solid #4a4a4a;
+        font-size: 1.3rem;
+        font-family: inherit;
+        letter-spacing: 0.2rem;
+        cursor: pointer;
+        border-radius: 4px;
+        box-shadow: 0 0 15px rgba(120,0,0,0.3);
+        transition: 0.15s;
+    }
+    button:hover {
+        background: #2a2a2a;
+        border-color: #8a8a8a;
+        color: #fff;
+        box-shadow: 0 0 25px rgba(180,0,0,0.5);
+    }
+    #battery-indicator, #key-indicator {
+        position: absolute; bottom: 25px;
+        color: #b0b0b0; font-size: 1.1rem;
+        background: rgba(0,0,0,0.6);
+        padding: 8px 16px;
+        border-radius: 20px;
+        border: 1px solid #3a3a3a;
+        pointer-events: none;
+        z-index: 5;
+    }
+    #battery-indicator { left: 25px; }
+    #key-indicator { right: 25px; }
+    #damage-flash {
+        position: absolute; inset: 0;
+        background: rgba(180,0,0,0.4);
+        pointer-events: none; z-index: 20;
+        opacity: 0;
+        transition: opacity 0.15s;
+    }
+</style>
+</head>
+<body>
+<div id="game-container">
+    <canvas id="game-canvas"></canvas>
+
+    <div id="menu-overlay" class="overlay">
+        <h1>THE LAST LIGHT</h1>
+        <p>You are trapped in an abandoned house.</p>
+        <p>Find <span class="key-hint">3 keys</span> to unlock the exit.</p>
+        <p>A monster roams the halls. Stay out of its sight.</p>
+        <div class="controls">
+            <p>WASD — move · Mouse — look · Click canvas — lock mouse</p>
+            <p>Shift — run (drains battery faster) · F — toggle flashlight</p>
+        </div>
+        <button id="start-btn">ENTER THE HOUSE</button>
+    </div>
+
+    <div id="gameover-overlay" class="overlay hidden">
+        <h1 style="color:#8a2e2e;">YOU DIED</h1>
+        <p>The darkness consumed you.</p>
+        <button id="restart-btn">TRY AGAIN</button>
+    </div>
+
+    <div id="win-overlay" class="overlay hidden">
+        <h1 style="color:#7a9e7a;">YOU ESCAPED</h1>
+        <p>You found all three keys and unlocked the exit.</p>
+        <p>But the house remembers...</p>
+        <button id="win-restart-btn">PLAY AGAIN</button>
+    </div>
+
+    <div id="battery-indicator">🔋 100%</div>
+    <div id="key-indicator">🔑 0 / 3</div>
+    <div id="damage-flash"></div>
+</div>
+
+<script>
+(function () {
+    "use strict";
+
+    // ------------------------------------------------------------------
+    // DOM
+    // ------------------------------------------------------------------
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const WIDTH = 960;
+    const HEIGHT = 540;
+    canvas.width = WIDTH;
+    canvas.height = HEIGHT;
+
+    const menuOverlay = document.getElementById('menu-overlay');
+    const gameoverOverlay = document.getElementById('gameover-overlay');
+    const winOverlay = document.getElementById('win-overlay');
+    const startBtn = document.getElementById('start-btn');
+    const restartBtn = document.getElementById('restart-btn');
+    const winRestartBtn = document.getElementById('win-restart-btn');
+    const batteryDiv = document.getElementById('battery-indicator');
+    const keyDiv = document.getElementById('key-indicator');
+    const damageFlash = document.getElementById('damage-flash');
+
+    // ------------------------------------------------------------------
+    // STATE
+    // ------------------------------------------------------------------
+    const TOTAL_KEYS = 3;
+
+    let gameActive = false;
+    let gameOver = false;
+    let gameWin = false;
+    let keysCollected = 0;
+
+    let keysPressed = {};
+    let pointerLocked = false;
+
+    // Player
+    const player = {
+        x: 1.5, y: 1.5,
+        dirX: 1, dirY: 0,
+        planeX: 0, planeY: 0.66,
+        speed: 0.075,
+        runSpeed: 0.13,
+        flashlightOn: true,
+        battery: 100,
+        batteryDrain: 0.02
+    };
+
+    // Monster
+    const monster = {
+        x: 8.5, y: 11.5,
+        speed: 0.045,
+        state: 'patrol',
+        patrolPoints: [
+            { x: 1.5, y: 11.5 },
+            { x: 13.5, y: 11.5 }
+        ],
+        patrolIndex: 1,
+        searchTimer: 0,
+        chaseTimer: 0,
+        lastSeen: { x: 8.5, y: 11.5 }
+    };
+
+    // Map: 1 = wall, 0 = floor, 2 = exit, 3 = key
+    const MAP = [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,0,1,1,1,0,1,1,1,1,1,1,1,0,0,1],
+        [1,0,1,0,0,0,0,0,0,0,0,0,1,0,0,1],
+        [1,0,1,0,1,1,1,1,1,1,1,0,1,1,1,1],
+        [1,0,0,0,1,3,0,0,0,0,1,0,0,0,0,1],
+        [1,1,1,0,1,0,1,1,1,0,1,0,1,1,0,1],
+        [1,0,0,0,0,0,1,3,0,0,0,0,0,1,0,1],
+        [1,0,1,1,1,0,1,1,1,1,1,1,0,1,0,1],
+        [1,0,1,3,0,0,0,0,0,0,0,1,0,0,0,1],
+        [1,0,1,1,1,1,1,1,1,1,0,1,1,1,1,1],
+        [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+        [1,1,1,1,1,0,1,1,1,1,1,1,1,1,0,1],
+        [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
+        [1,0,1,1,1,1,1,0,1,1,1,1,1,1,0,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,1]
+    ];
+
+    const EXIT_POS = { x: 14.5, y: 15.5 };
+
+    let keysList = [];
+    function buildKeys() {
+        keysList = [];
+        for (let y = 0; y < 16; y++) {
+            for (let x = 0; x < 16; x++) {
+                if (MAP[y][x] === 3) {
+                    keysList.push({ x: x + 0.5, y: y + 0.5, collected: false });
+                }
+            }
+        }
+    }
+    buildKeys();
+
+    // Flicker / scare
+    let flickerIntensity = 1;
+    let flickerTimer = 0;
+    let scareActive = false;
+    let scareIntensity = 0;
+    let scareTimer = 3;
+
+    // ------------------------------------------------------------------
+    // AUDIO
+    // ------------------------------------------------------------------
+    let audioCtx = null;
+    let monsterGain = null;
+
+    function initAudio() {
+        if (audioCtx) return;
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+            const amb = audioCtx.createOscillator();
+            const ambGain = audioCtx.createGain();
+            amb.type = 'sawtooth';
+            amb.frequency.value = 55;
+            ambGain.gain.value = 0.02;
+            amb.connect(ambGain).connect(audioCtx.destination);
+            amb.start();
+
+            const lfo = audioCtx.createOscillator();
+            const lfoGain = audioCtx.createGain();
+            lfo.frequency.value = 0.25;
+            lfoGain.gain.value = 0.008;
+            lfo.connect(lfoGain).connect(ambGain.gain);
+            lfo.start();
+
+            const mon = audioCtx.createOscillator();
+            monsterGain = audioCtx.createGain();
+            mon.type = 'square';
+            mon.frequency.value = 75;
+            monsterGain.gain.value = 0;
+            mon.connect(monsterGain).connect(audioCtx.destination);
+            mon.start();
+        } catch (e) {
+            console.warn('audio unavailable', e);
+        }
+    }
+
+    function updateMonsterSound(dist) {
+        if (!monsterGain) return;
+        monsterGain.gain.value = Math.max(0, 0.12 * (1 - dist / 10));
+    }
+
+    function beep(freq, dur, vol) {
+        if (!audioCtx) return;
+        try {
+            const o = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            o.frequency.value = freq;
+            g.gain.value = vol;
+            o.connect(g).connect(audioCtx.destination);
+            o.start();
+            o.stop(audioCtx.currentTime + dur);
+        } catch (e) {}
+    }
+
+    // ------------------------------------------------------------------
+    // RENDER
+    // ------------------------------------------------------------------
+    const NUM_RAYS = 320;
+    const RAY_W = WIDTH / NUM_RAYS;
+    const zBuffer = new Float32Array(NUM_RAYS);
+
+    function render() {
+        // ceiling / floor gradients
+        const ceilGrad = ctx.createLinearGradient(0, 0, 0, HEIGHT / 2);
+        ceilGrad.addColorStop(0, '#0a0a0a');
+        ceilGrad.addColorStop(1, '#1c1c1c');
+        ctx.fillStyle = ceilGrad;
+        ctx.fillRect(0, 0, WIDTH, HEIGHT / 2);
+
+        const floorGrad = ctx.createLinearGradient(0, HEIGHT / 2, 0, HEIGHT);
+        floorGrad.addColorStop(0, '#1c1c1c');
+        floorGrad.addColorStop(1, '#050505');
+        ctx.fillStyle = floorGrad;
+        ctx.fillRect(0, HEIGHT / 2, WIDTH, HEIGHT / 2);
+
+        const hasLight = player.flashlightOn && player.battery > 0;
+
+        for (let i = 0; i < NUM_RAYS; i++) {
+            const camX = 2 * i / NUM_RAYS - 1;
+            const rayDirX = player.dirX + player.planeX * camX;
+            const rayDirY = player.dirY + player.planeY * camX;
+
+            let mapX = Math.floor(player.x);
+            let mapY = Math.floor(player.y);
+
+            const dDistX = Math.abs(1 / (rayDirX || 1e-6));
+            const dDistY = Math.abs(1 / (rayDirY || 1e-6));
+
+            let stepX, stepY, sideDistX, sideDistY;
+
+            if (rayDirX < 0) {
+                stepX = -1;
+                sideDistX = (player.x - mapX) * dDistX;
+            } else {
+                stepX = 1;
+                sideDistX = (mapX + 1 - player.x) * dDistX;
+            }
+            if (rayDirY < 0) {
+                stepY = -1;
+                sideDistY = (player.y - mapY) * dDistY;
+            } else {
+                stepY = 1;
+                sideDistY = (mapY + 1 - player.y) * dDistY;
+            }
+
+            let hit = 0, side = 0, steps = 0;
+            while (hit === 0 && steps < 64) {
+                steps++;
+                if (sideDistX < sideDistY) {
+                    sideDistX += dDistX;
+                    mapX += stepX;
+                    side = 0;
+                } else {
+                    sideDistY += dDistY;
+                    mapY += stepY;
+                    side = 1;
+                }
+                if (mapX < 0 || mapX >= 16 || mapY < 0 || mapY >= 16) { hit = 1; break; }
+                if (MAP[mapY][mapX] === 1) hit = 1;
+                else if (MAP[mapY][mapX] === 2) hit = 2;
+                else if (MAP[mapY][mapX] === 3) hit = 3;
+            }
+
+            let perp = (side === 0)
+                ? (sideDistX - dDistX)
+                : (sideDistY - dDistY);
+            if (perp < 0.001) perp = 0.001;
+            zBuffer[i] = perp;
+
+            const lineH = Math.floor(HEIGHT / perp);
+            const drawStart = -lineH / 2 + HEIGHT / 2;
+
+            let base = 60;
+            if (hit === 2) base = 110;
+            else if (hit === 3) base = 90;
+
+            const sideFactor = side === 0 ? 1 : 0.7;
+            const distFactor = Math.max(0.12, 1 - perp / 18);
+            let bright = base * sideFactor * distFactor * flickerIntensity;
+
+            if (hasLight) {
+                const rlen = Math.hypot(rayDirX, rayDirY);
+                const dlen = Math.hypot(player.dirX, player.dirY);
+                const dot = (rayDirX * player.dirX + rayDirY * player.dirY) / (rlen * dlen);
+                bright *= (0.45 + 0.6 * Math.max(0, dot));
+            } else {
+                bright *= 0.35;
+            }
+
+            bright = Math.max(6, Math.min(255, bright));
+
+            ctx.fillStyle = `rgb(${bright | 0}, ${(bright * 0.9) | 0}, ${(bright * 0.85) | 0})`;
+            ctx.fillRect(i * RAY_W, drawStart, RAY_W + 1, lineH);
+
+            if (hit === 2) {
+                ctx.fillStyle = `rgba(190, 60, 60, ${0.5 * (1 - perp / 15)})`;
+                ctx.fillRect(i * RAY_W, drawStart, RAY_W + 1, lineH);
+            } else if (hit === 3) {
+                ctx.fillStyle = `rgba(190, 190, 60, ${0.5 * (1 - perp / 15)})`;
+                ctx.fillRect(i * RAY_W, drawStart, RAY_W + 1, lineH);
+            }
+        }
+
+        // Monster billboard
+        const mdx = monster.x - player.x;
+        const mdy = monster.y - player.y;
+        const mdist = Math.hypot(mdx, mdy);
+
+        const invDet = 1 / (player.planeX * player.dirY - player.dirX * player.planeY);
+        const tX = invDet * (player.dirY * mdx - player.dirX * mdy);
+        const tY = invDet * (-player.planeY * mdx + player.planeX * mdy);
+
+        if (tY > 0.25 && mdist < 14) {
+            const scrX = Math.floor((WIDTH / 2) * (1 + tX / tY));
+            const size = Math.floor(HEIGHT / tY);
+            const col = Math.floor(scrX / RAY_W);
+            if (col >= 0 && col < NUM_RAYS && tY < zBuffer[col] && size < HEIGHT * 4) {
+                const alpha = Math.min(0.95, Math.max(0.25, 1 - mdist / 14));
+                ctx.fillStyle = `rgba(8, 0, 0, ${alpha})`;
+                ctx.beginPath();
+                ctx.ellipse(scrX, HEIGHT / 2, size * 0.35, size * 0.5, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(scrX, HEIGHT / 2 - size * 0.28, size * 0.18, 0, Math.PI * 2);
+                ctx.fill();
+
+                if (mdist < 9) {
+                    const eyeA = Math.max(0, 1 - mdist / 9);
+                    ctx.fillStyle = `rgba(230, 20, 20, ${eyeA})`;
+                    const eyeR = Math.max(2, size * 0.045);
+                    ctx.beginPath();
+                    ctx.arc(scrX - size * 0.08, HEIGHT / 2 - size * 0.30, eyeR, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(scrX + size * 0.08, HEIGHT / 2 - size * 0.30, eyeR, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        // scare tint
+        if (scareActive) {
+            ctx.fillStyle = `rgba(160, 0, 0, ${scareIntensity * 0.25})`;
+            ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        }
+
+        // flashlight vignette
+        if (hasLight) {
+            const g = ctx.createRadialGradient(WIDTH / 2, HEIGHT / 2, 90, WIDTH / 2, HEIGHT / 2, 560);
+            g.addColorStop(0, 'rgba(0,0,0,0)');
+            g.addColorStop(1, 'rgba(0,0,0,0.72)');
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        } else {
+            ctx.fillStyle = 'rgba(0,0,0,0.82)';
+            ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // UPDATE
+    // ------------------------------------------------------------------
+    function isWall(x, y) {
+        const mx = Math.floor(x);
+        const my = Math.floor(y);
+        if (mx < 0 || mx > 15 || my < 0 || my > 15) return true;
+        return MAP[my][mx] === 1;
+    }
+
+    function tryMove(entity, mx, my) {
+        // slide along walls
+        if (!isWall(entity.x + mx, entity.y)) entity.x += mx;
+        if (!isWall(entity.x, entity.y + my)) entity.y += my;
+    }
+
+    function updatePlayer(dt) {
+        const speed = keysPressed['shift'] ? player.runSpeed : player.speed;
+        const step = speed * dt * 60;
+
+        let mx = 0, my = 0;
+        if (keysPressed['w']) {
+            mx += player.dirX * step;
+            my += player.dirY * step;
+        }
+        if (keysPressed['s']) {
+            mx -= player.dirX * step;
+            my -= player.dirY * step;
+        }
+        if (keysPressed['a']) {
+            mx += player.planeX * step;
+            my += player.planeY * step;
+        }
+        if (keysPressed['d']) {
+            mx -= player.planeX * step;
+            my -= player.planeY * step;
+        }
+        tryMove(player, mx, my);
+
+        // battery
+        if (player.flashlightOn && player.battery > 0) {
+            let drain = player.batteryDrain * dt * 60;
+            if (keysPressed['shift']) drain *= 1.8;
+            player.battery = Math.max(0, player.battery - drain);
+            if (player.battery <= 0) player.flashlightOn = false;
+        }
+        batteryDiv.textContent = `🔋 ${Math.floor(player.battery)}%`;
+        batteryDiv.style.color = player.battery <= 0 ? '#8a2e2e' : '#b0b0b0';
+
+        // keys
+        for (const k of keysList) {
+            if (k.collected) continue;
+            if (Math.hypot(player.x - k.x, player.y - k.y) < 0.55) {
+                k.collected = true;
+                keysCollected++;
+                keyDiv.textContent = `🔑 ${keysCollected} / ${TOTAL_KEYS}`;
+                beep(880, 0.18, 0.12);
+            }
+        }
+
+        // exit
+        if (keysCollected >= TOTAL_KEYS && Math.hypot(player.x - EXIT_POS.x, player.y - EXIT_POS.y) < 0.8) {
+            gameWin = true;
+            gameActive = false;
+            if (document.pointerLockElement) document.exitPointerLock();
+            winOverlay.classList.remove('hidden');
+            beep(440, 0.5, 0.15);
+        }
+    }
+
+    function lineOfSight(x0, y0, x1, y1) {
+        const dx = x1 - x0;
+        const dy = y1 - y0;
+        const dist = Math.hypot(dx, dy);
+        const steps = Math.max(2, Math.floor(dist * 4));
+        for (let i = 1; i < steps; i++) {
+            const t = i / steps;
+            const px = x0 + dx * t;
+            const py = y0 + dy * t;
+            if (isWall(px, py)) return false;
+        }
+        return true;
+    }
+
+    function updateMonster(dt) {
+        const dx = player.x - monster.x;
+        const dy = player.y - monster.y;
+        const dist = Math.hypot(dx, dy);
+        const sees = dist < 10 && lineOfSight(monster.x, monster.y, player.x, player.y);
+
+        if (sees) {
+            monster.state = 'chase';
+            monster.chaseTimer = 3;
+            monster.lastSeen.x = player.x;
+            monster.lastSeen.y = player.y;
+        } else if (monster.state === 'chase') {
+            monster.chaseTimer -= dt;
+            if (monster.chaseTimer <= 0) {
+                monster.state = 'search';
+                monster.searchTimer = 2.5;
+            }
+        } else if (monster.state === 'search') {
+            monster.searchTimer -= dt;
+            if (monster.searchTimer <= 0) monster.state = 'patrol';
+        }
+
+        const speed = monster.speed * dt * 60;
+        let mx = 0, my = 0;
+
+        if (monster.state === 'chase') {
+            if (dist > 0.4) {
+                mx = (dx / dist) * speed;
+                my = (dy / dist) * speed;
+            }
+            updateMonsterSound(dist);
+        } else if (monster.state === 'search') {
+            const sx = monster.lastSeen.x - monster.x;
+            const sy = monster.lastSeen.y - monster.y;
+            const sd = Math.hypot(sx, sy);
+            if (sd > 0.3) {
+                mx = (sx / sd) * speed * 0.6;
+                my = (sy / sd) * speed * 0.6;
+            }
+            updateMonsterSound(dist * 1.6);
+        } else {
+            const target = monster.patrolPoints[monster.patrolIndex];
+            const px = target.x - monster.x;
+            const py = target.y - monster.y;
+            const pd = Math.hypot(px, py);
+            if (pd < 0.4) {
+                monster.patrolIndex = (monster.patrolIndex + 1) % monster.patrolPoints.length;
+            } else {
+                mx = (px / pd) * speed * 0.55;
+                my = (py / pd) * speed * 0.55;
+            }
+            updateMonsterSound(dist * 2.5);
+        }
+
+        tryMove(monster, mx, my);
+
+        // kill
+        if (dist < 0.85) {
+            gameOver = true;
+            gameActive = false;
+            if (document.pointerLockElement) document.exitPointerLock();
+            gameoverOverlay.classList.remove('hidden');
+            damageFlash.style.opacity = '1';
+            setTimeout(() => { damageFlash.style.opacity = '0'; }, 250);
+            beep(80, 0.8, 0.3);
+        }
+    }
+
+    function updateFlicker(dt) {
+        flickerTimer -= dt;
+        if (flickerTimer <= 0) {
+            flickerTimer = 0.05 + Math.random() * 0.3;
+            flickerIntensity = 0.6 + Math.random() * 0.5;
+            if (Math.random() < 0.08) flickerIntensity = 0.2;
+        }
+        scareTimer -= dt;
+        if (scareTimer <= 0) {
+            scareTimer = 4 + Math.random() * 8;
+            if (Math.random() < 0.35) {
+                scareActive = true;
+                scareIntensity = 0.5 + Math.random() * 0.5;
+                setTimeout(() => { scareActive = false; }, 200 + Math.random() * 300);
+            }
+        }
+        if (!scareActive) scareIntensity *= 0.92;
+    }
+
+    // ------------------------------------------------------------------
+    // LOOP
+    // ------------------------------------------------------------------
+    let lastTime = performance.now();
+
+    function loop(now) {
+        const dt = Math.min(0.05, (now - lastTime) / 1000);
+        lastTime = now;
+
+        if (gameActive) {
+            updatePlayer(dt);
+            updateMonster(dt);
+            updateFlicker(dt);
+        }
+
+        render();
+        requestAnimationFrame(loop);
+    }
+
+    // ------------------------------------------------------------------
+    // INPUT
+    // ------------------------------------------------------------------
+    window.addEventListener('keydown', (e) => {
+        const k = e.key.toLowerCase();
+        keysPressed[k] = true;
+        if (['w', 'a', 's', 'd', 'shift', ' '].includes(k)) e.preventDefault();
+        if (k === 'f' && player.battery > 0) {
+            player.flashlightOn = !player.flashlightOn;
+        }
+    });
+    window.addEventListener('keyup', (e) => {
+        keysPressed[e.key.toLowerCase()] = false;
+    });
+
+    canvas.addEventListener('click', () => {
+        if (gameActive && !pointerLocked) {
+            canvas.requestPointerLock();
+        }
+    });
+
+    document.addEventListener('pointerlockchange', () => {
+        pointerLocked = (document.pointerLockElement === canvas);
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!pointerLocked || !gameActive) return;
+        const sens = 0.0022;
+        const rot = e.movementX * sens;
+        const cos = Math.cos(rot);
+        const sin = Math.sin(rot);
+
+        const odx = player.dirX;
+        player.dirX = player.dirX * cos - player.dirY * sin;
+        player.dirY = odx * sin + player.dirY * cos;
+
+        const opx = player.planeX;
+        player.planeX = player.planeX * cos - player.planeY * sin;
+        player.planeY = opx * sin + player.planeY * cos;
+    });
+
+    // ------------------------------------------------------------------
+    // RESET / START
+    // ------------------------------------------------------------------
+    function resetGame() {
+        player.x = 1.5;
+        player.y = 1.5;
+        player.dirX = 1;
+        player.dirY = 0;
+        player.planeX = 0;
+        player.planeY = 0.66;
+        player.battery = 100;
+        player.flashlightOn = true;
+
+        monster.x = 8.5;
+        monster.y = 11.5;
+        monster.state = 'patrol';
+        monster.patrolIndex = 1;
+        monster.chaseTimer = 0;
+        monster.searchTimer = 0;
+
+        keysCollected = 0;
+        keysPressed = {};
+        buildKeys();
+        keyDiv.textContent = `🔑 0 / ${TOTAL_KEYS}`;
+        batteryDiv.textContent = '🔋 100%';
+        batteryDiv.style.color = '#b0b0b0';
+
+        flickerIntensity = 1;
+        flickerTimer = 0;
+        scareActive = false;
+        scareIntensity = 0;
+        scareTimer = 3;
+
+        gameOver = false;
+        gameWin = false;
+    }
+
+    function startGame() {
+        initAudio();
+        if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume().catch(() => {});
+        }
+
+        resetGame();
+        gameActive = true;
+
+        menuOverlay.classList.add('hidden');
+        gameoverOverlay.classList.add('hidden');
+        winOverlay.classList.add('hidden');
+
+        lastTime = performance.now();
+        canvas.requestPointerLock();
+    }
+
+    startBtn.addEventListener('click', startGame);
+    restartBtn.addEventListener('click', startGame);
+    winRestartBtn.addEventListener('click', startGame);
+
+    // Kick off render loop
+    requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

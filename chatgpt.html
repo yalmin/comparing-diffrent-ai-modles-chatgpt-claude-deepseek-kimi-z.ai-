@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Last Light</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030405;color:#ddd;font-family:Georgia,serif}
+body{user-select:none}canvas{display:block;width:100%;height:100%;image-rendering:auto}
+#hud{position:fixed;inset:0;pointer-events:none;display:none}
+#cross{position:absolute;left:50%;top:50%;width:5px;height:5px;margin:-2px;border:1px solid #bbb;border-radius:50%;opacity:.75}
+#battery{position:absolute;left:25px;bottom:25px;width:180px;height:12px;border:1px solid #aaa;background:#111;box-shadow:0 0 10px #000}
+#charge{height:100%;width:100%;background:#ddd;transition:width .1s}
+#batteryText{position:absolute;left:25px;bottom:43px;font:12px Arial;color:#aaa;letter-spacing:2px}
+#keys{position:absolute;right:25px;top:25px;font:15px Arial;color:#bbb;letter-spacing:2px;text-shadow:0 2px 5px #000}
+#objective{position:absolute;left:50%;top:22px;transform:translateX(-50%);font:13px Arial;color:#999;letter-spacing:3px;text-align:center}
+#hint{position:absolute;left:50%;bottom:45px;transform:translateX(-50%);font:14px Arial;color:#ddd;text-shadow:0 2px 8px #000;opacity:0;transition:opacity .3s}
+.screen{position:fixed;inset:0;background:radial-gradient(circle at center,#151719 0,#050607 42%,#010101 100%);display:flex;align-items:center;justify-content:center;text-align:center;z-index:10}
+.panel{width:min(700px,90vw);padding:45px;border:1px solid #343434;background:rgba(3,4,5,.88);box-shadow:0 0 80px #000}
+h1{font-size:clamp(48px,9vw,100px);letter-spacing:12px;font-weight:normal;margin:0 0 10px;color:#ddd;text-shadow:0 0 30px #777}
+h2{font-size:38px;letter-spacing:7px;font-weight:normal;margin:0 0 20px}
+.sub{font:13px Arial;color:#888;letter-spacing:4px;margin-bottom:35px}
+p{font:16px/1.8 Arial;color:#aaa}
+button{margin-top:20px;padding:15px 34px;background:#111;color:#ddd;border:1px solid #555;font:14px Arial;letter-spacing:3px;cursor:pointer}
+button:hover{background:#252525;border-color:#aaa}
+#instructions{display:none}.controls{display:grid;grid-template-columns:1fr 1fr;gap:8px 30px;text-align:left;max-width:420px;margin:25px auto}.controls span{font:13px Arial;color:#999}.key{color:#ddd}
+#flash{position:fixed;inset:0;background:white;opacity:0;pointer-events:none;z-index:8}
+#jumpscare{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:#000;z-index:9}
+#monsterFace{width:180px;height:250px;position:relative;filter:drop-shadow(0 0 20px #fff)}
+.eye{position:absolute;top:70px;width:42px;height:24px;background:#eee;border-radius:50%;box-shadow:0 0 25px #fff}
+.eye:after{content:"";position:absolute;left:17px;top:6px;width:9px;height:12px;background:#000;border-radius:50%}
+.eye.l{left:20px}.eye.r{right:20px}
+.mouth{position:absolute;left:25px;right:25px;bottom:45px;height:65px;border-bottom:10px solid #ddd;border-radius:0 0 50% 50%}
+#damage{position:fixed;inset:0;border:0 solid rgba(130,0,0,.5);pointer-events:none;z-index:7;transition:border .1s}
+@media(max-width:600px){.panel{padding:25px}.controls{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud">
+  <div id="cross"></div><div id="battery"><div id="charge"></div></div>
+  <div id="batteryText">FLASHLIGHT 100%</div><div id="keys">KEYS 0 / 3</div>
+  <div id="objective">FIND THE THREE KEYS. GET OUT.</div><div id="hint"></div>
+</div>
+<div id="damage"></div><div id="flash"></div>
+<div id="jumpscare"><div id="monsterFace"><div class="eye l"></div><div class="eye r"></div><div class="mouth"></div></div></div>
+
+<div id="menu" class="screen"><div class="panel">
+<h1>THE LAST LIGHT</h1><div class="sub">AN ABANDONED HOUSE • ONE WAY OUT</div>
+<p>Something still lives here. The front door is locked. Three keys remain somewhere in the house.</p>
+<button id="start">ENTER THE HOUSE</button><br><button id="showInstructions">INSTRUCTIONS</button>
+</div></div>
+
+<div id="instructions" class="screen"><div class="panel">
+<h2>INSTRUCTIONS</h2>
+<p>Search every connected room. Collect all three keys, then return to the front door.</p>
+<div class="controls">
+<span><b class="key">W A S D</b> — Move</span><span><b class="key">MOUSE</b> — Look</span>
+<span><b class="key">F</b> — Flashlight</span><span><b class="key">SHIFT</b> — Sprint</span>
+<span><b class="key">ESC</b> — Release mouse</span><span><b class="key">R</b> — Restart</span>
+</div>
+<p>The flashlight battery is limited. Lights may flicker. The thing in the house listens for you and sees you in its light.</p>
+<button id="back">BACK</button>
+</div></div>
+
+<div id="end" class="screen" style="display:none"><div class="panel">
+<h2 id="endTitle"></h2><p id="endText"></p><button id="restart">RESTART</button>
+</div></div>
+
+<script>
+(() => {
+"use strict";
+const canvas=document.getElementById("game"),ctx=canvas.getContext("2d");
+const hud=document.getElementById("hud"),menu=document.getElementById("menu"),instructions=document.getElementById("instructions"),end=document.getElementById("end");
+const charge=document.getElementById("charge"),batteryText=document.getElementById("batteryText"),keysUI=document.getElementById("keys"),objective=document.getElementById("objective"),hint=document.getElementById("hint");
+const flash=document.getElementById("flash"),damage=document.getElementById("damage"),jumpscare=document.getElementById("jumpscare");
+let W,H,FOV=Math.PI/3,rays=0,started=false,paused=false,last=0,time=0;
+const keys={}; let mouseDX=0;
+const player={x:2.5,y:8.5,a:-Math.PI/2,speed:2.4,battery:100,flash:true,health:100};
+const world=[
+"#################",
+"#...............#",
+"#.#####.#######.#",
+"#.#...#.#.....#.#",
+"#.#...#.#.....#.#",
+"#.#...#.#.....#.#",
+"#...#...#.....#.#",
+"###.#.###.....#.#",
+"#...#.........#.#",
+"#.###########.#.#",
+"#.#.........#.#.#",
+"#.#.#######.#.#.#",
+"#...#.....#...#.#",
+"###.#.....#####.#",
+"#...#...........#",
+"#.#############.#",
+"#...............#",
+"#################"
+];
+const HMAP=world.length,WORLDW=world[0].length;
+const cell=(x,y)=>{x=Math.floor(x);y=Math.floor(y);return y>=0&&y<HMAP&&x>=0&&x<WORLDW?world[y]==="#" : true};
+const keysPos=[{x:13.5,y:4.5,got:false},{x:2.5,y:14.5,got:false},{x:10.5,y:12.5,got:false}];
+const exit={x:8.5,y:16.5};
+const monster={x:14.5,y:8.5,a:Math.PI,speed:1.15,state:"patrol",target:null,lastSeen:0,search:0,pathIndex:0};
+const patrol=[{x:14.5,y:8.5},{x:14.5,y:3.5},{x:9.5,y:3.5},{x:9.5,y:8.5},{x:5.5,y:8.5},{x:5.5,y:14.5},{x:12.5,y:14.5}];
+
+function resize(){W=canvas.width=innerWidth;H=canvas.height=innerHeight;rays=Math.max(220,Math.min(700,Math.floor(W/2)));}
+addEventListener("resize",resize);resize();
+
+function reset(){
+ player.x=2.5;player.y=8.5;player.a=-Math.PI/2;player.speed=2.4;player.battery=100;player.flash=true;player.health=100;
+ keysPos.forEach(k=>k.got=false);monster.x=14.5;monster.y=8.5;monster.a=Math.PI;monster.state="patrol";monster.pathIndex=0;monster.target=null;monster.search=0;
+ time=0;hint.style.opacity=0;end.style.display="none";jumpscare.style.display="none";damage.style.borderWidth="0";started=true;paused=false;hud.style.display="block";requestPointer();
+}
+function requestPointer(){if(started)canvas.requestPointerLock?.();}
+function norm(a){while(a>Math.PI)a-=Math.PI*2;while(a<-Math.PI)a+=Math.PI*2;return a}
+function dist(a,b,c,d){return Math.hypot(a-c,b-d)}
+function moveEntity(o,dx,dy){
+ const nx=o.x+dx,ny=o.y+dy,r=.18;
+ if(!cell(nx+r,o.y)&&!cell(nx-r,o.y))o.x=nx;
+ if(!cell(o.x,ny+r)&&!cell(o.x,ny-r))o.y=ny;
+}
+function los(x1,y1,x2,y2){
+ const d=dist(x1,y1,x2,y2),steps=Math.ceil(d*12);
+ for(let i=1;i<steps;i++){let t=i/steps,x=x1+(x2-x1)*t,y=y1+(y2-y1)*t;if(cell(x,y))return false}
+ return true;
+}
+function canSeeMonster(){
+ const d=dist(player.x,player.y,monster.x,monster.y);
+ if(d>9)return false;
+ const ang=Math.abs(norm(Math.atan2(monster.y-player.y,monster.x-player.x)-player.a));
+ if(ang>FOV*.72)return false;
+ return los(player.x,player.y,monster.x,monster.y);
+}
+function flashlightOn(){return player.flash&&player.battery>0}
+function sound(type){
+ const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
+ if(!sound.ac)sound.ac=new AC();const ac=sound.ac,o=ac.createOscillator(),g=ac.createGain();
+ const now=ac.currentTime;
+ if(type==="step"){o.type="triangle";o.frequency.setValueAtTime(70+Math.random()*25,now);g.gain.setValueAtTime(.025,now);g.gain.exponentialRampToValueAtTime(.001,now+.08)}
+ if(type==="scare"){o.type="sawtooth";o.frequency.setValueAtTime(55,now);o.frequency.exponentialRampToValueAtTime(900,now+.35);g.gain.setValueAtTime(.001,now);g.gain.exponentialRampToValueAtTime(.16,now+.04);g.gain.exponentialRampToValueAtTime(.001,now+.7)}
+ if(type==="pickup"){o.type="sine";o.frequency.setValueAtTime(420,now);o.frequency.exponentialRampToValueAtTime(900,now+.22);g.gain.setValueAtTime(.08,now);g.gain.exponentialRampToValueAtTime(.001,now+.3)}
+ if(type==="door"){o.type="sine";o.frequency.setValueAtTime(120,now);o.frequency.exponentialRampToValueAtTime(35,now+.8);g.gain.setValueAtTime(.12,now);g.gain.exponentialRampToValueAtTime(.001,now+.9)}
+ o.connect(g).connect(ac.destination);o.start();o.stop(now+1);
+}
+function flickerFactor(x,y){
+ const n=Math.sin(time*11+x*7+y*3);
+ return n>.93?(.15+Math.random()*.3):1;
+}
+function update(dt){
+ time+=dt;
+ // movement
+ let f=(keys.KeyW?1:0)-(keys.KeyS?1:0),s=(keys.KeyD?1:0)-(keys.KeyA?1:0);
+ if(f||s){
+  const sprint=keys.ShiftLeft||keys.ShiftRight,spd=player.speed*(sprint?1.65:1);
+  const l=Math.hypot(f,s);f/=l;s/=l;
+  moveEntity(player,Math.cos(player.a)*f*spd*dt+Math.cos(player.a+Math.PI/2)*s*spd*dt,Math.sin(player.a)*f*spd*dt+Math.sin(player.a+Math.PI/2)*s*spd*dt);
+  if(Math.floor(time*6)%2===0&&Math.random()<.025)sound("step");
+ }
+ // flashlight drain/recharge impossible; flicker near empty
+ if(flashlightOn())player.battery=Math.max(0,player.battery-dt*1.55);
+ if(player.battery<=0)player.flash=false;
+ charge.style.width=player.battery+"%";batteryText.textContent="FLASHLIGHT "+Math.ceil(player.battery)+"%";
+ keysUI.textContent="KEYS "+keysPos.filter(k=>k.got).length+" / 3";
+ objective.textContent=keysPos.every(k=>k.got)?"RETURN TO THE FRONT DOOR.":"FIND THE THREE KEYS. GET OUT.";
+ // pickups
+ for(const k of keysPos)if(!k.got&&dist(player.x,player.y,k.x,k.y)<.65){k.got=true;sound("pickup");showHint("You found a key.");}
+ if(keysPos.every(k=>k.got)&&dist(player.x,player.y,exit.x,exit.y)<1){
+  sound("door");endGame(true);return;
+ }
+ // monster AI
+ const seen=canSeeMonster(), d=dist(player.x,player.y,monster.x,monster.y);
+ if(seen){monster.state="chase";monster.lastSeen=time;monster.target={x:player.x,y:player.y};}
+ else if(monster.state==="chase" && time-monster.lastSeen>2.5){monster.state="search";monster.search=3.5;monster.target=monster.target||{x:player.x,y:player.y};}
+ if(monster.state==="patrol"){
+  const p=patrol[monster.pathIndex];
+  if(dist(monster.x,monster.y,p.x,p.y)<.35)monster.pathIndex=(monster.pathIndex+1)%patrol.length;
+  monster.target=patrol[monster.pathIndex];
+ } else if(monster.state==="search"){
+  monster.search-=dt;if(monster.search<=0)monster.state="patrol";
+ }
+ if(monster.target){
+  const ang=Math.atan2(monster.target.y-monster.y,monster.target.x-monster.x);monster.a=norm(ang);
+  const sp=monster.state==="chase"?1.75:monster.speed;
+  moveEntity(monster,Math.cos(ang)*sp*dt,Math.sin(ang)*sp*dt);
+ }
+ if(d<.72){
+  player.health-=dt*55;damage.style.borderWidth=Math.min(40,Math.floor((1-player.health/100)*35))+"px";
+  if(Math.random()<.025)sound("scare");
+  if(player.health<=0){sound("scare");endGame(false);return}
+ } else damage.style.borderWidth="0";
+ // ambient flicker
+ if(Math.random()<dt*.13)flash.style.opacity=Math.random()<.3?".12":"0";
+ else flash.style.opacity="0";
+ // hints
+ if(d<4&&monster.state==="chase")showHint("RUN. DON'T LET IT SEE YOU.");
+ else if(!keysPos.every(k=>k.got)&&dist(player.x,player.y,13.5,4.5)<2)showHint("Something feels wrong in this room.");
+}
+let hintTimer=0;
+function showHint(t){hint.textContent=t;hint.style.opacity=1;hintTimer=2}
+function endGame(win){
+ started=false;document.exitPointerLock?.();hud.style.display="none";end.style.display="flex";
+ document.getElementById("endTitle").textContent=win?"YOU ESCAPED":"THE LIGHT WENT OUT";
+ document.getElementById("endText").textContent=win?"Three keys. One last door. You made it out before the house could keep you.":"It found you in the dark. The house is quiet again.";
+}
+
+function render(){
+ ctx.fillStyle="#020304";ctx.fillRect(0,0,W,H);
+ const horizon=H/2;
+ // ceiling/floor
+ ctx.fillStyle="#08090a";ctx.fillRect(0,0,W,horizon);
+ const grad=ctx.createLinearGradient(0,horizon,0,H);grad.addColorStop(0,"#11100e");grad.addColorStop(1,"#030303");ctx.fillStyle=grad;ctx.fillRect(0,horizon,W,H-horizon);
+ // raycast
+ const step=FOV/rays;
+ for(let i=0;i<rays;i++){
+  const a=player.a-FOV/2+i*step,dx=Math.cos(a),dy=Math.sin(a);
+  let d=0,hitX=0,hitY=0;
+  while(d<22){d+=.035;let x=player.x+dx*d,y=player.y+dy*d;if(cell(x,y)){hitX=x;hitY=y;break}}
+  const corrected=d*Math.cos(a-player.a),wallH=Math.min(H*2.4,H*.9/(corrected+.01));
+  let light=flashlightOn()?Math.max(0,1-corrected/9):Math.max(0,1-corrected/2.5);
+  // narrow flashlight cone
+  const cone=Math.max(0,1-Math.abs(norm(a-player.a))/(FOV*.65));
+  if(flashlightOn())light*=.35+.75*cone;
+  let lum=Math.max(.025,light)*flickerFactor(Math.floor(hitX),Math.floor(hitY));
+  const shade=Math.floor(18+58*lum);
+  ctx.fillStyle=`rgb(${shade},${shade},${shade-2})`;
+  ctx.fillRect(i*(W/rays),horizon-wallH/2,W/rays+1,wallH);
+ }
+ // sprites: keys and monster, depth sorted
+ const sprites=[];
+ for(const k of keysPos)if(!k.got)sprites.push({x:k.x,y:k.y,type:"key",size:.3});
+ sprites.push({x:exit.x,y:exit.y,type:"door",size:1});
+ sprites.push({x:monster.x,y:monster.y,type:"monster",size:1.0});
+ sprites.sort((a,b)=>dist(player.x,player.y,b.x,b.y)-dist(player.x,player.y,a.x,a.y));
+ for(const s of sprites)drawSprite(s);
+ // vignette
+ const v=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*.15,W/2,H/2,Math.max(W,H)*.75);
+ v.addColorStop(0,"rgba(0,0,0,0)");v.addColorStop(1,"rgba(0,0,0,.75)");ctx.fillStyle=v;ctx.fillRect(0,0,W,H);
+ if(!started&&!menu.style.display==="none"){}
+}
+function drawSprite(s){
+ const dx=s.x-player.x,dy=s.y-player.y,d=Math.hypot(dx,dy),ang=norm(Math.atan2(dy,dx)-player.a);
+ if(Math.abs(ang)>FOV*.72)return;
+ const z=d*Math.cos(ang);if(z<=.1)return;
+ const sx=W/2+(ang/FOV)*W, size=H/z*s.size;
+ const light=flashlightOn()?Math.max(.1,1-d/10):Math.max(.04,1-d/3);
+ ctx.save();ctx.translate(sx,H/2);
+ if(s.type==="key"){
+  ctx.globalAlpha=Math.min(1,light+.2);ctx.strokeStyle="#d8c97a";ctx.lineWidth=Math.max(2,size*.08);ctx.beginPath();ctx.arc(0,-size*.08,size*.18,0,Math.PI*2);ctx.stroke();ctx.beginPath();ctx.moveTo(size*.18,-size*.08);ctx.lineTo(size*.55,size*.3);ctx.lineTo(size*.38,size*.45);ctx.moveTo(size*.42,size*.36);ctx.lineTo(size*.58,size*.48);ctx.stroke();
+ } else if(s.type==="door"){
+  ctx.globalAlpha=Math.min(1,light+.15);ctx.fillStyle="#171717";ctx.fillRect(-size*.42,-size*.75,size*.84,size*1.5);ctx.strokeStyle="#555";ctx.strokeRect(-size*.42,-size*.75,size*.84,size*1.5);ctx.fillStyle="#aaa";ctx.beginPath();ctx.arc(size*.23,0,size*.045,0,Math.PI*2);ctx.fill();
+ } else {
+  ctx.globalAlpha=Math.min(1,light+.15);ctx.fillStyle="#050505";ctx.beginPath();ctx.ellipse(0,-size*.15,size*.38,size*.62,0,0,Math.PI*2);ctx.fill();ctx.fillStyle="#ddd";ctx.beginPath();ctx.arc(-size*.13,-size*.25,size*.07,0,Math.PI*2);ctx.arc(size*.13,-size*.25,size*.07,0,Math.PI*2);ctx.fill();ctx.fillStyle="#000";ctx.beginPath();ctx.arc(-size*.13,-size*.25,size*.025,0,Math.PI*2);ctx.arc(size*.13,-size*.25,size*.025,0,Math.PI*2);ctx.fill();ctx.fillStyle="#111";ctx.fillRect(-size*.2,size*.15,size*.4,size*.08);
+ }
+ ctx.restore();
+}
+function loop(t){
+ const dt=Math.min(.05,(t-last)/1000||0);last=t;
+ if(started&&!paused){if(hintTimer>0){hintTimer-=dt;if(hintTimer<=0)hint.style.opacity=0}update(dt)}
+ if(started)render();
+ requestAnimationFrame(loop);
+}
+document.getElementById("start").onclick=()=>{menu.style.display="none";reset();sound("door")};
+document.getElementById("showInstructions").onclick=()=>{menu.style.display="none";instructions.style.display="flex"};
+document.getElementById("back").onclick=()=>{instructions.style.display="none";menu.style.display="flex"};
+document.getElementById("restart").onclick=()=>reset();
+addEventListener("keydown",e=>{
+ keys[e.code]=true;
+ if(e.code==="KeyF"&&started){player.flash=!player.flash&&player.battery>0||false}
+ if(e.code==="KeyR"&&started)reset();
+ if(e.code==="Escape")paused=document.pointerLockElement!==canvas;
+});
+addEventListener("keyup",e=>keys[e.code]=false);
+document.addEventListener("mousemove",e=>{if(document.pointerLockElement===canvas&&started){player.a=norm(player.a+e.movementX*.0024)}});
+canvas.addEventListener("click",()=>{if(started)requestPointer()});
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
