@@ -4,5 +4,5 @@ You’re trapped in a dark, abandoned house. Find three keys to unlock the exit 
 
 Use simple visuals that need no image assets. Ensure the game works when run in a browser, and include brief run instructions.
 
-i used all free modles: qwen 3.8 max, GPT-5.6 Luna, claude sonnet 5.5, DeepSeek-V4.1-Flash, z.ai glm 5.3
+i used most of the mainstream free modles: qwen 3.8 max, GPT-5.6 Luna, claude sonnet 5.5, DeepSeek-V4.1-Flash, z.ai glm 5.3
 
