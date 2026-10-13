@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Last Light</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Creepster&family=Special+Elite&display=swap');
+        
+        body {
+            background-color: #050505;
+            color: #d1d5db;
+            font-family: 'Special Elite', monospace;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .horror-font {
+            font-family: 'Creepster', cursive;
+            letter-spacing: 2px;
+        }
+
+        /* CRT Scanline and Vignette Effects */
+        .crt::after {
+            content: " ";
+            display: block;
+            position: fixed;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            z-index: 40;
+            background-size: 100% 4px, 6px 100%;
+            pointer-events: none;
+        }
+
+        .vignette {
+            box-shadow: inset 0 0 100px rgba(0, 0, 0, 0.9), inset 0 0 150px rgba(0, 0, 0, 0.8);
+            pointer-events: none;
+        }
+
+        .danger-vignette {
+            box-shadow: inset 0 0 80px rgba(185, 28, 28, 0.8), inset 0 0 120px rgba(127, 29, 29, 0.9);
+            animation: pulse-danger 1s infinite alternate;
+            pointer-events: none;
+        }
+
+        @keyframes pulse-danger {
+            0% { opacity: 0.4; }
+            100% { opacity: 0.9; }
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen m-0 p-0 crt">
+
+    <!-- Game Canvas -->
+    <canvas id="gameCanvas" class="absolute inset-0 w-full h-full block cursor-crosshair"></canvas>
+
+    <!-- Vignette Overlay -->
+    <div id="vignetteOverlay" class="absolute inset-0 vignette z-20"></div>
+
+    <!-- Start Screen -->
+    <div id="startScreen" class="absolute inset-0 bg-black z-50 flex flex-col items-center justify-center p-6 text-center">
+        <div class="max-w-xl bg-neutral-950/80 border border-red-900/40 p-8 rounded-2xl shadow-2xl backdrop-blur-md">
+            <h1 class="horror-font text-6xl md:text-7xl text-red-600 mb-4 drop-shadow-[0_5px_5px_rgba(220,38,38,0.5)]">The Last Light</h1>
+            <p class="text-neutral-400 text-sm md:text-base mb-6 leading-relaxed">
+                You are trapped in a pitch-black labyrinth. Your flashlight is dying. Collect <span class="text-yellow-500 font-bold">3 Golden Keys</span> and find the heavy iron exit door to escape. Spare batteries are scattered in the dark. <br><br>
+                <span class="text-red-500 font-semibold">Something is hunting you in the dark. Do not let it catch you.</span>
+            </p>
+            <div class="bg-neutral-900/90 border border-neutral-800 p-4 rounded-xl text-left text-xs text-neutral-300 mb-8 space-y-2">
+                <p><strong>Controls:</strong></p>
+                <p>• <span class="text-yellow-400">W / S / A / D</span> or <span class="text-yellow-400">Arrow Keys</span>: Move & Strafe</p>
+                <p>• <span class="text-yellow-400">Mouse Move</span> or <span class="text-yellow-400">Left / Right Arrows</span>: Look Around</p>
+                <p>• <span class="text-yellow-400">E</span> or <span class="text-yellow-400">Spacebar</span>: Interact / Collect</p>
+                <p>• <span class="text-yellow-400">Click Canvas</span>: Enable Mouse Look</p>
+            </div>
+            <button id="startButton" class="relative group overflow-hidden rounded-xl bg-red-700 px-8 py-4 text-white font-bold text-lg shadow-lg hover:bg-red-600 transition-all duration-300 transform hover:scale-105 active:scale-95 cursor-pointer pointer-events-auto">
+                <span class="relative z-10">ENTER THE DARKNESS</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- HUD Overlay -->
+    <div id="hud" class="absolute inset-0 z-30 pointer-events-none hidden flex flex-col justify-between p-6">
+        <!-- Top Bar -->
+        <div class="flex justify-between items-start">
+            <div class="bg-neutral-950/80 border border-neutral-800 backdrop-blur px-5 py-3 rounded-xl shadow-lg flex items-center space-x-3">
+                <svg class="w-6 h-6 text-yellow-500 animate-pulse" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.03-.42 1.98-1.07 2.75z"/></svg>
+                <div>
+                    <div class="text-xs text-neutral-400">KEYS COLLECTED</div>
+                    <div id="keyCount" class="text-xl font-bold text-yellow-500">0 / 3</div>
+                </div>
+            </div>
+
+            <div class="bg-neutral-950/80 border border-neutral-800 backdrop-blur px-5 py-3 rounded-xl shadow-lg flex items-center space-x-3">
+                <svg class="w-6 h-6 text-cyan-400" fill="currentColor" viewBox="0 0 24 24"><path d="M16 20H8v-2h8v2m0-4H8v-2h8v2m0-4H8V6h8v6m2-10H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+                <div>
+                    <div class="text-xs text-neutral-400">BATTERY</div>
+                    <div class="w-28 bg-neutral-800 h-3 rounded-full overflow-hidden mt-1">
+                        <div id="batteryBar" class="bg-cyan-400 h-full w-full transition-all duration-300"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Notification / Prompt -->
+        <div class="self-center mb-12">
+            <div id="interactionPrompt" class="bg-neutral-950/90 border border-neutral-700 px-6 py-2 rounded-xl text-sm text-neutral-200 opacity-0 transition-opacity duration-200 shadow-xl">
+                Press [E] to interact
+            </div>
+        </div>
+
+        <!-- Bottom Status -->
+        <div class="flex justify-between items-end text-xs text-neutral-500">
+            <div>FIND THE IRON EXIT DOOR</div>
+            <div id="statusMessage" class="text-red-400 font-semibold"></div>
+        </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameOverScreen" class="absolute inset-0 bg-black/95 z-50 hidden flex flex-col items-center justify-center p-6 text-center">
+        <div class="max-w-md bg-neutral-950 border border-red-900/60 p-8 rounded-2xl shadow-2xl">
+            <h2 class="horror-font text-6xl text-red-600 mb-2">YOU DIED</h2>
+            <p id="deathReason" class="text-neutral-400 text-sm mb-6">The entity caught you in the dark...</p>
+            <button id="restartButton" class="rounded-xl bg-red-800 px-6 py-3 text-white font-bold shadow-lg hover:bg-red-700 transition-all duration-300 cursor-pointer pointer-events-auto">
+                TRY AGAIN
+            </button>
+        </div>
+    </div>
+
+    <!-- Victory Screen -->
+    <div id="victoryScreen" class="absolute inset-0 bg-black/95 z-50 hidden flex flex-col items-center justify-center p-6 text-center">
+        <div class="max-w-md bg-neutral-950 border border-yellow-600/60 p-8 rounded-2xl shadow-2xl">
+            <h2 class="horror-font text-6xl text-yellow-500 mb-2">ESCAPED</h2>
+            <p class="text-neutral-300 text-sm mb-6">You unlocked the exit door and escaped into the cold morning light with your sanity intact.</p>
+            <button id="playAgainButton" class="rounded-xl bg-yellow-600 px-6 py-3 text-neutral-950 font-bold shadow-lg hover:bg-yellow-500 transition-all duration-300 cursor-pointer pointer-events-auto">
+                PLAY AGAIN
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // WEB AUDIO API SOUND SYSTEM
+        // ==========================================
+        class SoundManager {
+            constructor() {
+                this.ctx = null;
+                this.ambientNode = null;
+                this.ambientGain = null;
+                this.initialized = false;
+            }
+
+            init() {
+                if (this.initialized && this.ctx) {
+                    if (this.ctx.state === 'suspended') {
+                        this.ctx.resume();
+                    }
+                    return;
+                }
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (AudioContext) {
+                    this.ctx = new AudioContext();
+                    if (this.ctx.state === 'suspended') {
+                        this.ctx.resume();
+                    }
+                }
+                this.initialized = true;
+                this.startAmbientDrone();
+            }
+
+            startAmbientDrone() {
+                if (!this.ctx) return;
+                try {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    const filter = this.ctx.createBiquadFilter();
+
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(55, this.ctx.currentTime);
+
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(150, this.ctx.currentTime);
+
+                    gain.gain.setValueAtTime(0.08, this.ctx.currentTime);
+
+                    osc.connect(filter);
+                    filter.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+
+                    this.ambientNode = osc;
+                    this.ambientGain = gain;
+                } catch(e) {
+                    console.error("Audio error:", e);
+                }
+            }
+
+            playFootstep() {
+                if (!this.ctx) return;
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                const filter = this.ctx.createBiquadFilter();
+
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(80, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(20, this.ctx.currentTime + 0.15);
+
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(300, this.ctx.currentTime);
+
+                gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+
+                osc.connect(filter);
+                filter.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.15);
+            }
+
+            playPickup() {
+                if (!this.ctx) return;
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(440, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(880, this.ctx.currentTime + 0.3);
+
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.3);
+            }
+
+            playUnlock() {
+                if (!this.ctx) return;
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.setValueAtTime(220, now + 0.1);
+                osc.frequency.setValueAtTime(330, now + 0.2);
+
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc.start();
+                osc.stop(now + 0.4);
+            }
+
+            playHeartbeat(intensity = 1) {
+                if (!this.ctx) return;
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(60, now);
+                osc.frequency.exponentialRampToValueAtTime(30, now + 0.15);
+
+                gain.gain.setValueAtTime(0.3 * intensity, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc.start();
+                osc.stop(now + 0.2);
+
+                setTimeout(() => {
+                    if (!this.ctx) return;
+                    const now2 = this.ctx.currentTime;
+                    const osc2 = this.ctx.createOscillator();
+                    const gain2 = this.ctx.createGain();
+
+                    osc2.type = 'sine';
+                    osc2.frequency.setValueAtTime(50, now2);
+                    osc2.frequency.exponentialRampToValueAtTime(25, now2 + 0.1);
+
+                    gain2.gain.setValueAtTime(0.2 * intensity, now2);
+                    gain2.gain.exponentialRampToValueAtTime(0.01, now2 + 0.15);
+
+                    osc2.connect(gain2);
+                    gain2.connect(this.ctx.destination);
+
+                    osc2.start();
+                    osc2.stop(now2 + 0.15);
+                }, 120);
+            }
+
+            playJumpscare() {
+                if (!this.ctx) return;
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const now = this.ctx.currentTime;
+                const bufferSize = this.ctx.sampleRate * 0.8;
+                const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+
+                const noise = this.ctx.createBufferSource();
+                noise.buffer = buffer;
+
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'bandpass';
+                filter.frequency.setValueAtTime(1000, now);
+                filter.Q.setValueAtTime(3, now);
+
+                const gain = this.ctx.createGain();
+                gain.gain.setValueAtTime(0.6, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                noise.start(now);
+            }
+
+            stop() {
+                if (this.ambientNode) {
+                    try { this.ambientNode.stop(); } catch(e){}
+                }
+            }
+        }
+
+        // ==========================================
+        // MAP & ENTITIES CONFIGURATION
+        // ==========================================
+        const MAP = [
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1],
+            [1,0,1,0,1,0,1,1,1,0,1,0,1,1,0,1],
+            [1,0,1,0,0,0,1,0,1,0,0,0,1,0,0,1],
+            [1,0,1,1,1,0,1,0,1,1,1,0,1,1,0,1],
+            [1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1],
+            [1,1,1,0,1,1,1,0,1,1,1,1,1,0,1,1],
+            [1,0,0,0,0,0,1,0,1,0,0,0,1,0,0,1],
+            [1,0,1,1,1,0,1,0,1,0,1,0,1,1,0,1],
+            [1,0,1,0,0,0,0,0,0,0,1,0,0,0,0,1],
+            [1,0,1,0,1,1,1,1,1,0,1,1,1,0,1,1],
+            [1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,1],
+            [1,1,1,0,1,0,1,0,1,1,1,0,1,1,0,1],
+            [1,0,0,0,0,0,1,0,0,0,1,0,0,0,2,1],
+            [1,0,1,1,1,1,1,1,1,0,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+        ];
+
+        const MAP_WIDTH = MAP[0].length;
+        const MAP_HEIGHT = MAP.length;
+
+        let items = [
+            { x: 2.5, y: 2.5, type: 'key', collected: false },
+            { x: 13.5, y: 1.5, type: 'key', collected: false },
+            { x: 13.5, y: 13.5, type: 'key', collected: false },
+            { x: 8.5, y: 5.5, type: 'battery', collected: false },
+            { x: 1.5, y: 13.5, type: 'battery', collected: false },
+            { x: 5.5, y: 10.5, type: 'battery', collected: false }
+        ];
+
+        // ==========================================
+        // GAME STATE & ENGINE VARIABLES
+        // ==========================================
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const player = {
+            x: 1.5,
+            y: 1.5,
+            angle: 0,
+            fov: Math.PI / 3,
+            speed: 2.5,
+            rotSpeed: 2.0,
+            battery: 100,
+            keys: 0
+        };
+
+        const monster = {
+            x: 13.5,
+            y: 7.5,
+            speed: 1.8,
+            state: 'patrol',
+            pathTimer: 0,
+            targetX: 1.5,
+            targetY: 1.5
+        };
+
+        let keysPressed = {};
+        let mouseLookEnabled = false;
+        let lastTime = performance.now();
+        let gameRunning = false;
+        const soundMgr = new SoundManager();
+
+        // ==========================================
+        // INPUT HANDLING
+        // ==========================================
+        window.addEventListener('keydown', (e) => {
+            keysPressed[e.code] = true;
+            if ((e.code === 'KeyE' || e.code === 'Space') && gameRunning) {
+                checkInteraction();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            keysPressed[e.code] = false;
+        });
+
+        canvas.addEventListener('click', () => {
+            if (gameRunning) {
+                try {
+                    canvas.requestPointerLock();
+                } catch(e) {}
+            }
+        });
+
+        document.addEventListener('pointerlockchange', () => {
+            mouseLookEnabled = document.pointerLockElement === canvas;
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (mouseLookEnabled && gameRunning) {
+                player.angle += e.movementX * 0.003;
+            }
+        });
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // ==========================================
+        // RAYCASTER ENGINE
+        // ==========================================
+        function castRays() {
+            const screenWidth = canvas.width;
+            const screenHeight = canvas.height;
+            const numRays = screenWidth;
+            const halfFOV = player.fov / 2;
+
+            ctx.fillStyle = '#0a0a0a';
+            ctx.fillRect(0, 0, screenWidth, screenHeight / 2);
+            ctx.fillStyle = '#0f0f12';
+            ctx.fillRect(0, screenHeight / 2, screenWidth, screenHeight / 2);
+
+            const zBuffer = new Array(screenWidth);
+
+            for (let i = 0; i < numRays; i++) {
+                const rayAngle = player.angle - halfFOV + (i / numRays) * player.fov;
+                
+                let distance = 0;
+                let hitWall = false;
+                let hitType = 1;
+
+                const cos = Math.cos(rayAngle);
+                const sin = Math.sin(rayAngle);
+
+                let cx = player.x;
+                let cy = player.y;
+
+                const maxDistance = 20;
+                const stepSize = 0.02;
+
+                while (!hitWall && distance < maxDistance) {
+                    distance += stepSize;
+                    cx = player.x + cos * distance;
+                    cy = player.y + sin * distance;
+
+                    const mapX = Math.floor(cx);
+                    const mapY = Math.floor(cy);
+
+                    if (mapX < 0 || mapX >= MAP_WIDTH || mapY < 0 || mapY >= MAP_HEIGHT) {
+                        hitWall = true;
+                        distance = maxDistance;
+                    } else {
+                        const tile = MAP[mapY][mapX];
+                        if (tile > 0) {
+                            hitWall = true;
+                            hitType = tile;
+                        }
+                    }
+                }
+
+                const correctedDistance = distance * Math.cos(rayAngle - player.angle);
+                zBuffer[i] = correctedDistance;
+
+                const wallHeight = Math.min(screenHeight, (screenHeight / correctedDistance));
+                const wallTop = (screenHeight - wallHeight) / 2;
+
+                let brightness = Math.max(0, 1 - (correctedDistance / (player.battery * 0.12 + 2)));
+                
+                let r = Math.floor(25 * brightness);
+                let g = Math.floor(30 * brightness);
+                let b = Math.floor(35 * brightness);
+
+                if (hitType === 2) {
+                    r = Math.floor(120 * brightness);
+                    g = Math.floor(90 * brightness);
+                    b = Math.floor(30 * brightness);
+                }
+
+                ctx.strokeStyle = `rgb(${r},${g},${b})`;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(i, wallTop);
+                ctx.lineTo(i, wallTop + wallHeight);
+                ctx.stroke();
+            }
+
+            return zBuffer;
+        }
+
+        // ==========================================
+        // SPRITE & ENTITY RENDERING
+        // ==========================================
+        function renderSprites(zBuffer) {
+            const screenWidth = canvas.width;
+            const screenHeight = canvas.height;
+
+            let sprites = [];
+
+            items.forEach(item => {
+                if (!item.collected) {
+                    sprites.push({
+                        x: item.x,
+                        y: item.y,
+                        type: item.type,
+                        itemRef: item
+                    });
+                }
+            });
+
+            sprites.push({
+                x: monster.x,
+                y: monster.y,
+                type: 'monster'
+            });
+
+            sprites.sort((a, b) => {
+                const distA = Math.hypot(player.x - a.x, player.y - a.y);
+                const distB = Math.hypot(player.x - b.x, player.y - b.y);
+                return distB - distA;
+            });
+
+            sprites.forEach(sprite => {
+                const spriteX = sprite.x - player.x;
+                const spriteY = sprite.y - player.y;
+
+                const cos = Math.cos(-player.angle);
+                const sin = Math.sin(-player.angle);
+                const rotX = spriteX * cos - spriteY * sin;
+                const rotY = spriteX * sin + spriteY * cos;
+
+                if (rotY <= 0) return;
+
+                const screenX = (screenWidth / 2) + (rotX / rotY) * (screenWidth / 2) / Math.tan(player.fov / 2);
+                const spriteHeight = Math.abs(screenHeight / rotY);
+                const spriteWidth = spriteHeight;
+
+                const startX = Math.floor(screenX - spriteWidth / 2);
+                const endX = Math.floor(screenX + spriteWidth / 2);
+
+                for (let x = Math.max(0, startX); x < Math.min(screenWidth, endX); x++) {
+                    if (rotY < zBuffer[x]) {
+                        const top = (screenHeight - spriteHeight) / 2;
+                        
+                        if (sprite.type === 'key') {
+                            ctx.fillStyle = '#eab308';
+                            ctx.fillRect(x, top + spriteHeight * 0.4, 2, spriteHeight * 0.2);
+                        } else if (sprite.type === 'battery') {
+                            ctx.fillStyle = '#06b6d4';
+                            ctx.fillRect(x, top + spriteHeight * 0.45, 2, spriteHeight * 0.15);
+                        } else if (sprite.type === 'monster') {
+                            ctx.fillStyle = '#111827';
+                            ctx.fillRect(x, top, 2, spriteHeight);
+
+                            if (Math.abs(x - screenX) < spriteWidth * 0.15 && Math.abs((top + spriteHeight * 0.35) - (screenHeight / 2)) < spriteHeight * 0.1) {
+                                ctx.fillStyle = '#ef4444';
+                                ctx.fillRect(x, top + spriteHeight * 0.35, 2, 3);
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // ==========================================
+        // COLLISION & GAMEPLAY LOGIC
+        // ==========================================
+        function isWall(x, y) {
+            const mapX = Math.floor(x);
+            const mapY = Math.floor(y);
+            if (mapX < 0 || mapX >= MAP_WIDTH || mapY < 0 || mapY >= MAP_HEIGHT) return true;
+            return MAP[mapY][mapX] > 0;
+        }
+
+        function updatePlayer(dt) {
+            let moveSpeed = player.speed * dt;
+            let rotSpeed = player.rotSpeed * dt;
+
+            if (keysPressed['ArrowLeft'] || keysPressed['KeyQ']) player.angle -= rotSpeed;
+            if (keysPressed['ArrowRight'] || keysPressed['KeyE']) player.angle += rotSpeed;
+
+            let dx = 0;
+            let dz = 0;
+
+            if (keysPressed['KeyW'] || keysPressed['ArrowUp']) {
+                dx += Math.cos(player.angle) * moveSpeed;
+                dz += Math.sin(player.angle) * moveSpeed;
+            }
+            if (keysPressed['KeyS'] || keysPressed['ArrowDown']) {
+                dx -= Math.cos(player.angle) * moveSpeed;
+                dz -= Math.sin(player.angle) * moveSpeed;
+            }
+            if (keysPressed['KeyA']) {
+                dx += Math.sin(player.angle) * moveSpeed;
+                dz -= Math.cos(player.angle) * moveSpeed;
+            }
+            if (keysPressed['KeyD']) {
+                dx -= Math.sin(player.angle) * moveSpeed;
+                dz += Math.cos(player.angle) * moveSpeed;
+            }
+
+            const padding = 0.2;
+            if (!isWall(player.x + dx + (dx > 0 ? padding : -padding), player.y)) {
+                player.x += dx;
+            }
+            if (!isWall(player.x, player.y + dz + (dz > 0 ? padding : -padding))) {
+                player.y += dz;
+            }
+
+            if ((dx !== 0 || dz !== 0) && Math.random() < 0.05) {
+                soundMgr.playFootstep();
+            }
+
+            if (player.battery > 0) {
+                player.battery -= dt * 0.6;
+                if (player.battery < 0) player.battery = 0;
+            }
+
+            document.getElementById('batteryBar').style.width = `${player.battery}%`;
+        }
+
+        // ==========================================
+        // MONSTER AI & PATHFINDING
+        // ==========================================
+        let heartbeatTimer = 0;
+
+        function updateMonster(dt) {
+            const directDist = Math.hypot(player.x - monster.x, player.y - monster.y);
+
+            heartbeatTimer += dt;
+            if (directDist < 6) {
+                const interval = Math.max(0.4, directDist * 0.15);
+                if (heartbeatTimer > interval) {
+                    soundMgr.playHeartbeat(1 - (directDist / 6));
+                    heartbeatTimer = 0;
+                    document.getElementById('vignetteOverlay').className = 'absolute inset-0 danger-vignette z-20';
+                }
+            } else {
+                document.getElementById('vignetteOverlay').className = 'absolute inset-0 vignette z-20';
+            }
+
+            if (directDist < 8) {
+                monster.state = 'chase';
+            } else {
+                monster.state = 'patrol';
+            }
+
+            let targetX = player.x;
+            let targetY = player.y;
+
+            if (monster.state === 'patrol') {
+                monster.pathTimer -= dt;
+                if (monster.pathTimer <= 0 || Math.hypot(monster.targetX - monster.x, monster.targetY - monster.y) < 1) {
+                    const rx = Math.floor(Math.random() * (MAP_WIDTH - 2)) + 1;
+                    const ry = Math.floor(Math.random() * (MAP_HEIGHT - 2)) + 1;
+                    if (!isWall(rx, ry)) {
+                        monster.targetX = rx + 0.5;
+                        monster.targetY = ry + 0.5;
+                    }
+                    monster.pathTimer = 5;
+                }
+                targetX = monster.targetX;
+                targetY = monster.targetY;
+            }
+
+            const angleToTarget = Math.atan2(targetY - monster.y, targetX - monster.x);
+            const mSpeed = monster.speed * (monster.state === 'chase' ? 1.25 : 0.8) * dt;
+
+            const mdx = Math.cos(angleToTarget) * mSpeed;
+            const mdy = Math.sin(angleToTarget) * mSpeed;
+
+            if (!isWall(monster.x + mdx + 0.1, monster.y)) monster.x += mdx;
+            if (!isWall(monster.x, monster.y + mdy + 0.1)) monster.y += mdy;
+
+            if (Math.hypot(player.x - monster.x, player.y - monster.y) < 0.6) {
+                triggerGameOver();
+            }
+        }
+
+        // ==========================================
+        // INTERACTION & OBJECTIVES
+        // ==========================================
+        function checkInteraction() {
+            items.forEach(item => {
+                if (!item.collected && Math.hypot(player.x - item.x, player.y - item.y) < 1.2) {
+                    item.collected = true;
+                    if (item.type === 'key') {
+                        player.keys++;
+                        soundMgr.playPickup();
+                        document.getElementById('keyCount').innerText = `${player.keys} / 3`;
+                        showPrompt("Picked up a Golden Key!");
+                    } else if (item.type === 'battery') {
+                        player.battery = Math.min(100, player.battery + 35);
+                        soundMgr.playPickup();
+                        showPrompt("Picked up flashlight batteries!");
+                    }
+                }
+            });
+
+            const doorDist = Math.hypot(player.x - 14.5, player.y - 13.5);
+            if (doorDist < 1.5) {
+                if (player.keys >= 3) {
+                    soundMgr.playUnlock();
+                    triggerVictory();
+                } else {
+                    showPrompt(`Door locked! Need ${3 - player.keys} more key(s).`);
+                }
+            }
+        }
+
+        function showPrompt(text) {
+            const prompt = document.getElementById('interactionPrompt');
+            prompt.innerText = text;
+            prompt.style.opacity = '1';
+            setTimeout(() => {
+                prompt.style.opacity = '0';
+            }, 2500);
+        }
+
+        function triggerGameOver() {
+            gameRunning = false;
+            soundMgr.playJumpscare();
+            document.getElementById('hud').classList.add('hidden');
+            document.getElementById('gameOverScreen').classList.remove('hidden');
+            try { document.exitPointerLock(); } catch(e) {}
+        }
+
+        function triggerVictory() {
+            gameRunning = false;
+            soundMgr.stop();
+            document.getElementById('hud').classList.add('hidden');
+            document.getElementById('victoryScreen').classList.remove('hidden');
+            try { document.exitPointerLock(); } catch(e) {}
+        }
+
+        // ==========================================
+        // GAME INITIALIZATION & MAIN LOOP
+        // ==========================================
+        function startGame() {
+            try {
+                soundMgr.init();
+            } catch (e) {
+                console.error("Audio init error:", e);
+            }
+
+            player.x = 1.5;
+            player.y = 1.5;
+            player.angle = 0;
+            player.battery = 100;
+            player.keys = 0;
+            document.getElementById('keyCount').innerText = '0 / 3';
+
+            items.forEach(i => i.collected = false);
+
+            document.getElementById('startScreen').classList.add('hidden');
+            document.getElementById('gameOverScreen').classList.add('hidden');
+            document.getElementById('victoryScreen').classList.add('hidden');
+            document.getElementById('hud').classList.remove('hidden');
+
+            gameRunning = true;
+            lastTime = performance.now();
+            requestAnimationFrame(gameLoop);
+
+            try {
+                canvas.requestPointerLock();
+            } catch (e) {
+                // Pointer lock restriction ignored if triggered outside trusted user interaction
+            }
+        }
+
+        function gameLoop(currentTime) {
+            if (!gameRunning) return;
+
+            const dt = Math.min(0.1, (currentTime - lastTime) / 1000);
+            lastTime = currentTime;
+
+            updatePlayer(dt);
+            updateMonster(dt);
+
+            const zBuffer = castRays();
+            renderSprites(zBuffer);
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Robust event listeners for start/restart buttons
+        document.getElementById('startButton').addEventListener('click', (e) => {
+            e.stopPropagation();
+            startGame();
+        });
+        document.getElementById('restartButton').addEventListener('click', (e) => {
+            e.stopPropagation();
+            startGame();
+        });
+        document.getElementById('playAgainButton').addEventListener('click', (e) => {
+            e.stopPropagation();
+            startGame();
+        });
+
+        // Initial canvas blank render
+        ctx.fillStyle = '#050505';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    </script>
+</body>
+</html>
