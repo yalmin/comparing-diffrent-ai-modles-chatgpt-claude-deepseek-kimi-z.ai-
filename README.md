@@ -6,3 +6,4 @@ Use simple visuals that need no image assets. Ensure the game works when run in 
 
 i used most of the mainstream free modles: qwen 3.8 max, GPT-5.6 Luna, claude sonnet 5.5, DeepSeek-V4.1-Flash, z.ai glm 5.3
 
+<img width="2940" height="1846" alt="image" src="https://github.com/user-attachments/assets/52a1707a-ddfe-45b3-87fc-a7d6900aaf35" />
